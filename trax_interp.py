@@ -1,5 +1,5 @@
 from trax_obj import TraxObject
-from trax_tracing import TraceCompiler, ValueInstruction
+from trax_tracing import InputInstruction, TraceCompiler, ValueInstruction
 from typing import Tuple, Any, Callable
 from trax_backend import AppleSiliconBackend
 
@@ -95,6 +95,8 @@ class Interpreter:
         type_index = obj.get_type_index()
         self.method_key = (type_index, initial_function)
         self.code = self.method_map.get(self.method_key, [])
+        for inst in self.code:
+            print(inst)
         if not self.code:
             raise ValueError(f"Function {initial_function} not found for type index {type_index}")
         self.pc = 0
@@ -323,20 +325,19 @@ class Interpreter:
             # Set all tracing state to start tracing
             self.trace_active = key
             self.trace_compiler = TraceCompiler()
-            self.trace_stack = [self.trace_compiler.input(i) for i in range(len(self.stack))]
-            self.trace_inputs = list(self.trace_stack)
+            trace_stack: list[InputInstruction] = [self.trace_compiler.input(i) for i in range(len(self.stack))]
+            self.trace_stack = list(trace_stack)
+            self.trace_inputs = trace_stack
             self.trace_call_stack = []
         elif self.trace_active == key:
             # We have to close the loop on the inputs
             for input, value in zip(self.trace_inputs, self.trace_stack, strict=True):
-                self.trace_compiler.phi(input, value)
+                input.phi = value
             self.trace_compiler.optimize(self.constants)
             print(self.trace_compiler.pretty_print())
             print("\n")
             compiled_trace = self.backend.compile_trace(self.trace_compiler, self.constants)
-            print(compiled_trace.hex())
-            import sys
-            sys.stdout.flush()
+            print(compiled_trace.hex(), flush=True)
             compiled_trace = self.backend.create_executable_memory(compiled_trace)
             self.trace_compiler = TraceCompiler()
             self.compiled_traces[key] = compiled_trace

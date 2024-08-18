@@ -113,7 +113,8 @@ class AppleSiliconBackend(Backend):
 
         # Perform register allocation
         allowed_registers = [3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 8, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
-        register_allocation = allocate_registers(trace_compiler.get_instructions(), allowed_registers)
+        instructions = trace_compiler.preamble + trace_compiler.body
+        register_allocation = allocate_registers(instructions, allowed_registers)
 
         # Find all registers that are caller-save and used
         used_caller_save = set(register_allocation.values()) & set([8, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28])
@@ -125,23 +126,25 @@ class AppleSiliconBackend(Backend):
         for i, reg in enumerate(used_caller_save):
             asm.str(reg, 31, imm=i * 8)
 
-        #trace_compiler.optimize(const_table)
-        instructions = trace_compiler.get_instructions()
-
-        # Compile trace instructions, load instructions first
-        for input_inst in instructions:
-            if not isinstance(input_inst, InputInstruction):
-                continue
-            rd = register_allocation[input_inst]
-            asm.ldr(rd, 0, input_inst.input_index * 8)  # x0 points to the input array
+        # Compile the preamble first
+        for inst in trace_compiler.preamble:
+            self._compile_instruction(asm, inst, register_allocation, guard_exits)
 
         # Create a RelocVar for the trace entry point
         trace_entry = RelocVar()
         asm.assign_label(trace_entry)
-        for inst in instructions:
+        for inst in trace_compiler.body:
             self._compile_instruction(asm, inst, register_allocation, guard_exits)
 
-        # Jump back to the entry point
+        # Handle any movs needed for phi nodes
+        for input_inst in trace_compiler.body:
+            if not isinstance(input_inst, InputInstruction):
+                continue
+            rd = register_allocation[input_inst] # This is about to be live
+            rm = register_allocation[input_inst.phi] # This is assured to be live
+            # Do not emit a mov if we don't have to
+            if rd != rm:
+                asm.mov(rd, rm)
         asm.b(trace_entry)
 
         # Create a RelocVar for the final cleanup
@@ -200,15 +203,37 @@ class AppleSiliconBackend(Backend):
                 asm.cmp_imm(17, imm=0b11)
                 asm.bne(guard_exits[inst.guard_id])
             elif isinstance(inst, GuardIndex):
-                # NOTE: Consider using register 16 to increase parallism
-                # NOTE: omg...higher order bit pointer tagging would be so much better
-                asm.ands(17, reg, immr=0, imms=2)
-                asm.cmp_imm(17, TraxObject.OBJECT_TAG)
+                asm.ands(16, reg, immr=60, imms=60)
+                asm.ldr(16, 16) # Load as early as possible
+                asm.ands(17, reg, immr=0, imms=2) # Follow up with parallel inst
+                asm.cmp_imm(17, TraxObject.OBJECT_TAG) # Do some compute while loading
+                asm.bne(guard_exits[inst.guard_id]) # Should be ~free
+                asm.cmp_imm(16, inst.type_index) # After load is  done one more cycle
+                asm.bne(guard_exits[inst.guard_id]) # Should be ~free
+            elif isinstance(inst, GuardLT):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
+                asm.bge(guard_exits[inst.guard_id])
+            elif isinstance(inst, GuardLE):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
+                asm.bgt(guard_exits[inst.guard_id])
+            elif isinstance(inst, GuardGT):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
+                asm.ble(guard_exits[inst.guard_id])
+            elif isinstance(inst, GuardGE):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
+                asm.blt(guard_exits[inst.guard_id])
+            elif isinstance(inst, GuardEQ):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
                 asm.bne(guard_exits[inst.guard_id])
-                asm.ands(17, reg, immr=60, imms=60)
-                asm.ldr(17, 17)
-                asm.cmp_imm(17, inst.type_index)
-                asm.bne(guard_exits[inst.guard_id])
+            elif isinstance(inst, GuardNE):
+                reg2 = register_allocation[inst.right]
+                asm.cmp(reg, reg2)
+                asm.beq(guard_exits[inst.guard_id])
             # Add more guard types as needed
         elif isinstance(inst, BinaryOpInstruction):
             rd = register_allocation[inst]
@@ -227,11 +252,16 @@ class AppleSiliconBackend(Backend):
         elif isinstance(inst, ConstantInstruction):
             rd = register_allocation[inst]
             asm.ldr(rd, 1, inst.constant_index * 8) # x1 points to const array
-        elif isinstance(inst, Phi):
-            # TODO: This could be way more optimized to just not do a 'mov'
-            #       in most cases
-            rd = register_allocation[inst.input_instruction]
-            rm = register_allocation[inst.loop_back_operand]
+        elif isinstance(inst, InputInstruction):
+            rd = register_allocation[inst]
+            asm.ldr(rd, 0, inst.input_index * 8) # x0 points to inputs array
+            pass
+        elif isinstance(inst, CopyInstruction):
+            rd = register_allocation[inst.input]
+            rm = register_allocation[inst.value]
             if rd != rm:
                 asm.mov(rd, rm)
+            pass
+        else:
+            raise NotImplemented(f"No implementation for {type(inst)} in {type(self)}")
         # Add more instruction types as needed

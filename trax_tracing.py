@@ -11,6 +11,9 @@ class TraceInstruction:
     def pretty_print(self, value_to_name):
         return f"{self.__class__.__name__}"
 
+    def copy(self, value_map):
+        return self.__class__()
+
 class GuardInstruction(TraceInstruction):
     def __init__(self, guard_id: int, operand: "ValueInstruction", values_to_keep: list["ValueInstruction"]):
         self.guard_id = guard_id
@@ -22,6 +25,9 @@ class GuardInstruction(TraceInstruction):
 
     def pretty_print(self, value_to_name):
         return f"{self.__class__.__name__}(guard_id={self.guard_id}, operand={value_to_name(self.operand)}, values_to_keep=[{', '.join(value_to_name(v) for v in self.values_to_keep)}])"
+
+    def copy(self, value_map):
+        return self.__class__(self.guard_id, value_map(self.operand), [value_map(v) for v in self.values_to_keep])
 
 class GuardNil(GuardInstruction):
     pass
@@ -43,9 +49,47 @@ class GuardIndex(GuardInstruction):
     def pretty_print(self, value_to_name):
         return f"{self.__class__.__name__}(guard_id={self.guard_id}, operand={value_to_name(self.operand)}, type_index={self.type_index}, values_to_keep=[{', '.join(value_to_name(v) for v in self.values_to_keep)}])"
 
+    def copy(self, value_map):
+        return self.__class__(self.guard_id, value_map(self.operand), self.type_index, [value_map(v) for v in self.values_to_keep])
+
+class GuardCond(GuardInstruction):
+    def __init__(self, guard_id: int, operand: "ValueInstruction", right: "ValueInstruction", values_to_keep: list["ValueInstruction"]):
+        super().__init__(guard_id, operand, values_to_keep)
+        self.right = right
+
+    def get_live_values(self):
+        return [self.operand, self.right] + self.values_to_keep
+
+    def pretty_print(self, value_to_name):
+        return f"{self.__class__.__name__}(guard_id={self.guard_id}, operand={value_to_name(self.operand)}, right={value_to_name(self.right)}, values_to_keep=[{', '.join(value_to_name(v) for v in self.values_to_keep)}])"
+
+    def copy(self, value_map):
+        return self.__class__(self.guard_id, value_map(self.operand), value_map(self.right), [value_map(v) for v in self.values_to_keep])
+
+class GuardLT(GuardCond):
+    pass
+
+class GuardLE(GuardCond):
+    pass
+
+class GuardGT(GuardCond):
+    pass
+
+class GuardGE(GuardCond):
+    pass
+
+class GuardEQ(GuardCond):
+    pass
+
+class GuardNE(GuardCond):
+    pass
+
 class ValueInstruction(TraceInstruction):
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}"
+
+    def copy(self, value_map):
+        return self.__class__()
 
 class ConstantInstruction(ValueInstruction):
     def __init__(self, constant_index, type_index):
@@ -57,6 +101,9 @@ class ConstantInstruction(ValueInstruction):
 
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}(constant_index={self.constant_index})"
+
+    def copy(self, value_map):
+        return self.__class__(self.constant_index, self.type_index)
 
 class BinaryOpInstruction(ValueInstruction):
     def __init__(self, left, right, type_index):
@@ -70,11 +117,17 @@ class BinaryOpInstruction(ValueInstruction):
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}({value_to_name(self.left)}, {value_to_name(self.right)})"
 
+    def copy(self, value_map):
+        return self.__class__(value_map(self.left), value_map(self.right), self.type_index)
+
 class BoolBinInstruction(BinaryOpInstruction):
     def __init__(self, left, right):
         self.left = left
         self.right = right
         self.type_index = 2
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.left), value_map(self.right))
 
 class EqInstruction(BoolBinInstruction):
     pass
@@ -100,6 +153,9 @@ class IntBinInstruction(BinaryOpInstruction):
         self.right = right
         self.type_index = 0
 
+    def copy(self, value_map):
+        return self.__class__(value_map(self.left), value_map(self.right))
+
 class AddInstruction(IntBinInstruction):
     pass
 
@@ -116,14 +172,21 @@ class ModInstruction(IntBinInstruction):
     pass
 
 class InputInstruction(ValueInstruction):
+    phi: ValueInstruction
+    input_index: int
+
     def __init__(self, input_index):
         self.input_index = input_index
+        self.phi = self
 
     def get_live_values(self):
         return []
 
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}(input_index={self.input_index})"
+
+    def copy(self, value_map):
+        raise ValueError("You cannot copy an input instruction")
 
 class GetFieldInstruction(ValueInstruction):
     def __init__(self, obj, field_index):
@@ -135,6 +198,9 @@ class GetFieldInstruction(ValueInstruction):
 
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}({value_to_name(self.obj)}, field_index={self.field_index})"
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.obj), self.field_index)
 
 class SetFieldInstruction(TraceInstruction):
     def __init__(self, obj, field_index, value):
@@ -148,6 +214,9 @@ class SetFieldInstruction(TraceInstruction):
     def pretty_print(self, value_to_name):
         return f"{self.__class__.__name__}({value_to_name(self.obj)}, field_index={self.field_index}, value={value_to_name(self.value)})"
 
+    def copy(self, value_map):
+        return self.__class__(value_map(self.obj), self.field_index, value_map(self.value))
+
 class NewInstruction(ValueInstruction):
     def __init__(self, type_index, num_fields):
         self.type_index = type_index
@@ -159,16 +228,26 @@ class NewInstruction(ValueInstruction):
     def pretty_print(self, value_to_name):
         return f"{value_to_name(self)} = {self.__class__.__name__}(type_index={self.type_index}, num_fields={self.num_fields})"
 
-class Phi(TraceInstruction):
-    def __init__(self, input_instruction: InputInstruction, loop_back_operand: ValueInstruction):
-        self.input_instruction = input_instruction
-        self.loop_back_operand = loop_back_operand
+    def copy(self, value_map):
+        return self.__class__(self.type_index, self.num_fields)
+
+# Copy instructions are for creating copies from the preamble to the body which may sometimes be needed
+class CopyInstruction(TraceInstruction):
+    input: InputInstruction
+    value: ValueInstruction
+
+    def __init__(self, input, value):
+        self.input = input
+        self.value = value
 
     def get_live_values(self):
-        return [self.input_instruction, self.loop_back_operand]
+        return [self.value, self.input]
 
     def pretty_print(self, value_to_name):
-        return f"{self.__class__.__name__}(input={value_to_name(self.input_instruction)}, loop_back={value_to_name(self.loop_back_operand)})"
+        return f"{self.__class__.__name__}(input={value_to_name(self.value)}, value={value_to_name(self.value)})"
+
+    def copy(self, value_map):
+        raise ValueError("You cannot copy a copy instruction")
 
 class TraceCompiler:
     def __init__(self):
@@ -272,18 +351,123 @@ class TraceCompiler:
         self.add_instruction(instruction)
         return instruction
 
-    def phi(self, input_instruction, loop_back_operand):
-        instruction = Phi(input_instruction, loop_back_operand)
-        self.add_instruction(instruction)
-        return instruction
-
     def get_instructions(self):
         return list(self.instructions)
 
     def optimize(self, constant_table):
-        self.remove_redundant_guards()
-        self.dead_value_elimination()
-        self.optimize_constant_guards(constant_table)
+        self.remove_redundant_guards() # Guards get repeated a lot, remove repeated ones
+        self.dead_value_elimination(get_liveness_ranges(self.instructions)) # Don't need to compute dead values
+        self.optimize_constant_guards(constant_table) # Sometimes we guard on a constants
+        self.remove_trivial_guards() # Sometimes we guard on something we know the type of
+        self.optimize_guards(get_liveness_ranges(self.instructions)) # Sometimes there's a better guard we can use
+        self.unroll_and_lift()
+
+    # This is a somewhat tracing jit specific optimization, we want to recognize that the initital inputs
+    # might not be of a fixed class but after that we might know with certainy that they are. This leads
+    # us to the strategy of running once with all guards, then running again where we might know the type
+    # an input
+    def unroll_and_lift(self):
+        self.preamble = list(self.instructions)
+        self.body = []
+        preamble_to_body = {}
+        value_types = {}
+
+        # Now we get type info that will be valid at the *start* of the next iteration
+        for inst in self.instructions:
+            for instruction in self.instructions:
+                if isinstance(instruction, GuardInt):
+                    if instruction.operand in value_types and value_types[instruction.operand] == 0:
+                        continue
+                    value_types[instruction.operand] = 0
+
+                if isinstance(instruction, GuardTrue):
+                    if instruction.operand in value_types and value_types[instruction.operand] == 2:
+                        continue
+                    value_types[instruction.operand] = 2
+
+                if isinstance(instruction, GuardNil):
+                    if instruction.operand in value_types and value_types[instruction.operand] == 1:
+                        continue
+                    value_types[instruction.operand] = 1
+
+                if isinstance(instruction, BinaryOpInstruction):
+                    value_types[instruction] = instruction.type_index
+
+        # Now we emit the body instructions
+        phi_nodes = {}
+        for instruction in self.instructions:
+            if isinstance(instruction, InputInstruction):
+                preamble_to_body[instruction] = instruction
+                # We know the type of this in the second run
+                if instruction is not instruction.phi:
+                    value_types[instruction] = value_types[instruction.phi]
+                    phi_nodes[instruction.phi] = instruction # We need know about phi nodes later so that we can update them
+                self.preamble.append(CopyInstruction(instruction, instruction.phi))
+                continue
+
+            # This hurts register pressure but seems like an ok idea for now
+            # This code makes it so that constants from the preamble are reused in the inner loop
+            if isinstance(instruction, ConstantInstruction):
+                preamble_to_body[instruction] = instruction
+                continue
+
+            if isinstance(instruction, GuardInt):
+                if instruction.operand in value_types and value_types[instruction.operand] == 0:
+                    continue
+                value_types[instruction.operand] = 0
+
+            if isinstance(instruction, GuardTrue):
+                if instruction.operand in value_types and value_types[instruction.operand] == 2:
+                    continue
+                value_types[instruction.operand] = 2
+
+            if isinstance(instruction, GuardNil):
+                if instruction.operand in value_types and value_types[instruction.operand] == 1:
+                    continue
+                value_types[instruction.operand] = 1
+
+            if isinstance(instruction, BinaryOpInstruction):
+                value_types[instruction] = instruction.type_index
+
+            new_inst = instruction.copy(lambda v: preamble_to_body[v])
+            if instruction in phi_nodes:
+                phi_nodes[instruction].phi = new_inst # remap phi nodes
+            preamble_to_body[instruction] = new_inst
+            self.body.append(new_inst)
+
+    def optimize_guards(self, liveness_ranges):
+        optimized_instructions = []
+        skip_next = False
+        for i, instruction in enumerate(self.instructions):
+            if skip_next:
+                skip_next = False
+                continue
+
+            if isinstance(instruction, BoolBinInstruction) and i + 1 < len(self.instructions):
+                next_instruction = self.instructions[i + 1]
+                if isinstance(next_instruction, GuardTrue) and next_instruction.operand is instruction:
+                    # Check if the BoolBinInstruction result is no longer used
+                    is_unused = liveness_ranges[instruction][1] <= i + 1
+
+                    if is_unused:
+                        if isinstance(instruction, EqInstruction):
+                            optimized_instructions.append(GuardEQ(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        elif isinstance(instruction, NeInstruction):
+                            optimized_instructions.append(GuardNE(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        elif isinstance(instruction, LtInstruction):
+                            optimized_instructions.append(GuardLT(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        elif isinstance(instruction, GtInstruction):
+                            optimized_instructions.append(GuardGT(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        elif isinstance(instruction, LeInstruction):
+                            optimized_instructions.append(GuardLE(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        elif isinstance(instruction, GeInstruction):
+                            optimized_instructions.append(GuardGE(next_instruction.guard_id, instruction.left, instruction.right, next_instruction.values_to_keep))
+                        skip_next = True
+                        continue
+
+            optimized_instructions.append(instruction)
+
+        self.instructions = optimized_instructions
 
     # This goes through and just keeps track of trivial type info and uses
     # it to remove some guards
@@ -314,21 +498,19 @@ class TraceCompiler:
 
             new_instructions.append(instruction)
 
-    def dead_value_elimination(self):
-        used_values = set()
-        for instruction in reversed(self.instructions):
-            if isinstance(instruction, GuardInstruction):
-                used_values.add(instruction.operand)
-                used_values.update(instruction.values_to_keep)
-            elif isinstance(instruction, SetFieldInstruction):
-                used_values.add(instruction.obj)
-                used_values.add(instruction.value)
+    def dead_value_elimination(self, liveness_ranges):
+        used = set()
+        for instruction in self.instructions:
+            if isinstance(instruction, ValueInstruction):
+                (start, end) = liveness_ranges[instruction]
+                if start != end:
+                    used.add(instruction)
             else:
-                used_values.update(instruction.get_live_values())
+                used.add(instruction)
 
         optimized_instructions = [
             inst for inst in self.instructions
-            if not isinstance(inst, ValueInstruction) or inst in used_values
+            if inst in used
         ]
 
         self.instructions = optimized_instructions
@@ -380,13 +562,22 @@ class TraceCompiler:
             return value_to_name[value]
 
         pretty_instructions = []
-        for instruction in self.instructions:
-            pretty_instructions.append(instruction.pretty_print(get_value_name))
+        if self.preamble is not None:
+            pretty_instructions.append("pre:")
+            for instruction in self.preamble:
+                pretty_instructions.append("  " + instruction.pretty_print(get_value_name))
+            pretty_instructions.append("post:")
+            for instruction in self.body:
+                pretty_instructions.append("  " + instruction.pretty_print(get_value_name))
+        else:
+            for instruction in self.instructions:
+                pretty_instructions.append(instruction.pretty_print(get_value_name))
 
         return "\n".join(pretty_instructions)
 
 def get_liveness_ranges(instructions):
     liveness = {}
+    phi_nodes = {}
 
     def update_liveness(value, idx):
         start, end = liveness[value]
@@ -398,6 +589,14 @@ def get_liveness_ranges(instructions):
         if isinstance(inst, ValueInstruction):
             liveness[inst] = (idx, idx)
 
+        # We'll use this later to tie the knot if possible
+        if isinstance(inst, InputInstruction) and inst.phi is not None:
+            phi_nodes[inst.phi] = inst
+
+        # phi_nodes never die
+        if inst in phi_nodes:
+            liveness[inst] = (idx, len(instructions))
+
         # Now we can just find all operands and update the max on them
         for value in inst.get_live_values():
             update_liveness(value, idx)
@@ -408,6 +607,7 @@ def allocate_registers(instructions, available_registers):
     liveness_ranges = get_liveness_ranges(instructions)
     register_allocation = {}
     used_registers = set()
+    phi_nodes = {}
 
     for idx, inst in enumerate(instructions):
         for value in inst.get_live_values():
@@ -416,7 +616,20 @@ def allocate_registers(instructions, available_registers):
                 if reg in used_registers:
                     used_registers.remove(reg)
 
+        # We'll use this later to tie the knot if possible
+        if isinstance(inst, InputInstruction) and inst.phi is not None:
+            phi_nodes[inst.phi] = inst
+
         if isinstance(inst, ValueInstruction):
+            # If this is a phi node, try our best to tie the knot.
+            # If an input is its own phi node, there's nothing special we need to do
+            # if inst in phi_nodes and phi_nodes[inst] is not inst:
+            #     if register_allocation[phi_nodes[inst]] not in used_registers:
+            #         reg = register_allocation[phi_nodes[inst]]
+            #         register_allocation[inst] = reg
+            #         used_registers.add(reg)
+            #         continue
+
             # Find the first available register
             for reg in available_registers:
                 if reg not in used_registers:
@@ -426,5 +639,4 @@ def allocate_registers(instructions, available_registers):
             else:
                 # TODO: Implement spilling
                 raise ValueError("Not enough registers for allocation")
-
     return register_allocation

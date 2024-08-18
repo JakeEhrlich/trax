@@ -107,7 +107,6 @@ class AArch64Assembler:
             assert current_offset % 4 == 0
             assert label.value % 4 == 0
             offset = label.value - current_offset
-            print(f"{offset=}", current_offset, label.value)
             return inst | (((offset >> 2) & 0x7FFFF) << 5)
         self.relocations.append(Relocation.instruction(current_offset, reloc_func))
         instruction = 0x54000000 | (cond & 0xF)
