@@ -43,7 +43,7 @@ class Interpreter:
     trace_call_stack: list[GuardFrame]
     backend: AppleSiliconBackend
 
-    def __init__(self, constants, method_map, trace_threshold=1):
+    def __init__(self, constants, method_map, trace_threshold=2):
         # Mappings from the bytecode compiler
         self.constants = constants
         self.method_map = method_map
@@ -145,6 +145,7 @@ class Interpreter:
             opcode = instruction['opcode']
             self.pc += 1
 
+            print("trace: ", self.method_key, self.pc, instruction, self.stack)
             method = getattr(self, f"execute_{opcode}", None)
             if method:
                 result = method(instruction)
@@ -208,7 +209,9 @@ class Interpreter:
         #       we should cancel the trace
         # NOTE: If the trace gets too long we should cancel the trace
         method_name = instruction['method_name']
-        obj = self.stack[-1]  # Peek at the top of the stack
+        num_args = instruction['num_args']
+        args = [self.stack.pop() for _ in range(num_args)]
+        obj = self.stack.pop()
         type_index = obj.get_type_index()
         function_key = (type_index, method_name)
 
@@ -218,33 +221,41 @@ class Interpreter:
             #       and inline caching in the future. inline caching is
             #       great for more dynamic code
             # TODO: The guard needs the values it has to save passed to it
-            trace_obj = self.trace_stack[-1]
+            trace_obj = self.trace_stack[-num_args-1]
             self.emit_guard_index(trace_obj, type_index)
 
         # We need to handle builtins a bit differently from other things
         if function_key in self.builtin_methods:
             # Call the built-in method
-            result = self.builtin_methods[function_key](self.stack)
+            result = self.builtin_methods[function_key](obj, *reversed(args))
             self.stack.append(result)
             if self.trace_active is not None:
                 trace_compiler = self.trace_compiler
                 trace_func = self.builtin_trace_methods[function_key]
-                v = trace_func(self, self.trace_stack[-instruction['num_args']-1:])
-                del self.trace_stack[-instruction['num_args']-1:]
+                trace_args = [self.trace_stack.pop() for _ in range(num_args)]
+                trace_obj = self.trace_stack.pop()
+                print(self, trace_obj, trace_args)
+                v = trace_func(self, trace_obj, *reversed(trace_args))
                 self.trace_stack.append(v)
             return
 
         # In the more standard case of this just being a user defined method
         # we just have to add a stack frame and then update code, pc, and method
         if function_key in self.method_map:
-            frame = StackFrame(function_key, self.pc, self.stack)
+            frame = StackFrame(self.method_key, self.pc, self.stack)
             self.call_stack.append(frame)
             self.method_key = function_key
             self.code = self.method_map[function_key]
+            print(f"entering method: {self.method_key}")
+            for opcode in self.code:
+                print(opcode)
             self.pc = 0
+            self.stack = [obj] + list(reversed(args))
+            print("stack: ", self.stack)
             if self.trace_active is not None:
                 frame = GuardFrame(function_key, self.pc, self.trace_stack)
                 self.trace_call_stack.append(frame)
+            return
 
         raise ValueError(f"Method {method_name} not found for type {type_index}")
 
@@ -278,19 +289,19 @@ class Interpreter:
 
     def execute_set_field(self, instruction):
         field_index = instruction['field_index']
-        value = self.stack.pop()
         obj = self.stack.pop()
+        value = self.stack.pop()
         obj.set_field(field_index, value)
         if self.trace_active is not None:
-            value = self.trace_stack.pop()
             obj = self.trace_stack.pop()
+            value = self.trace_stack.pop()
             self.trace_compiler.set_field(obj, field_index, value)
 
     def execute_new(self, instruction):
         type_index = instruction['type_index']
         num_fields = instruction['num_fields']
         fields = [self.stack.pop() for _ in range(num_fields)]
-        obj = TraxObject.new(type_index, reversed(fields))
+        obj = TraxObject.new(type_index, list(reversed(fields)))
         self.stack.append(obj)
         if self.trace_active is not None:
             args = [self.trace_stack.pop() for _ in range(num_fields)]
@@ -307,12 +318,16 @@ class Interpreter:
         self.method_key = frame.method_key
         self.pc = frame.pc
         self.stack = frame.stack
+        self.stack.append(v)
         self.code = self.method_map[frame.method_key]
+        print("returning to: ", frame.method_key, frame.pc, frame.stack)
         if self.trace_active is not None:
+            trace_value = self.trace_stack.pop()
             guard_frame = self.trace_call_stack.pop()
             assert guard_frame.method_key == frame.method_key
             assert guard_frame.pc == frame.pc
             self.trace_stack = guard_frame.trace_stack
+            self.trace_stack.append(trace_value)
 
     def get_stack(self):
         return self.stack

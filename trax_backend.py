@@ -1,9 +1,9 @@
 import mmap
-import ctypes
+import ctypes as ct
 import sys
 import os
 from trax_aarch64_asm import AArch64Assembler
-from trax_obj import ffi, TraxObject
+from trax_obj import TraxObject
 from trax_tracing import *
 
 class Backend:
@@ -29,24 +29,29 @@ class Backend:
 #         > add instruction for small constants
 
 class AppleSiliconBackend(Backend):
+    def __init__(self):
+        self.libc = ct.CDLL(None)
+
+        self.malloc = self.libc.malloc
+        self.malloc.restype = ct.c_void_p
+        self.malloc.argtypes = (ct.c_size_t,)
+
     def create_executable_memory(self, code_bytes):
         page_size = mmap.PAGESIZE
         code_size = len(code_bytes)
         aligned_size = (code_size + page_size - 1) & ~(page_size - 1)
 
-        libc = ctypes.CDLL(None)
+        mmap_function = self.libc.mmap
+        mmap_function.restype = ct.c_void_p
+        mmap_function.argtypes = (ct.c_void_p, ct.c_size_t, ct.c_int, ct.c_int, ct.c_int, ct.c_longlong)
 
-        mmap_function = libc.mmap
-        mmap_function.restype = ctypes.c_void_p
-        mmap_function.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_longlong)
-
-        mprotect_function = libc.mprotect
-        mprotect_function.restype = ctypes.c_int
-        mprotect_function.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
+        mprotect_function = self.libc.mprotect
+        mprotect_function.restype = ct.c_int
+        mprotect_function.argtypes = (ct.c_void_p, ct.c_size_t, ct.c_int)
 
         # Use libc.mmap instead of Python's mmap
         addr = mmap_function(
-            ctypes.c_void_p(0),
+            ct.c_void_p(0),
             aligned_size,
             3,
             4098,
@@ -55,44 +60,62 @@ class AppleSiliconBackend(Backend):
         )
 
         if addr == 18446744073709551615:
-            errno = ctypes.c_int.in_dll(libc, "errno")
+            errno = ct.c_int.in_dll(self.libc, "errno")
             raise OSError(os.strerror(errno.value))
 
         # Copy code to the allocated memory
-        ctypes.memmove(addr, code_bytes, len(code_bytes))
+        ct.memmove(addr, code_bytes, len(code_bytes))
 
         # Change memory protection to executable
         err = mprotect_function(addr, aligned_size, mmap.PROT_EXEC | mmap.PROT_READ)
         if err == -1:
-            errno = ctypes.c_int.in_dll(libc, "errno")
+            errno = ct.c_int.in_dll(self.libc, "errno")
             raise OSError(os.strerror(errno.value))
 
         return addr
 
     def const_table(self, consts: list[TraxObject]):
         if not consts:
-            return ffi.cast("trax_value*", 0)
-        const_table = ffi.new(f"trax_value[{len(consts)}]")
+            return ct.cast(0, ct.POINTER(ct.c_int64))
+
+        const_table = self.malloc(ct.sizeof(ct.c_int64) * (1 + len(consts)))
+        const_table = ct.cast(const_table, ct.POINTER(ct.c_int64))
         for i, value in enumerate(consts):
             const_table[i] = value.value
+        # We need to inject malloc in here somewhere for now
+        const_table[len(consts)] = ct.addressof(self.malloc)
 
         return const_table
 
+    def allocate(self, size: int):
+        return self.malloc(ct.sizeof(ct.c_int64) * size)
+
+    def new(self, type_index: int, values: list[TraxObject]) -> TraxObject:
+        ptr = self.malloc(ct.sizeof(ct.c_int64) * (1 + len(values)))
+        ptr = ct.cast(ptr, ct.POINTER(ct.c_int64))
+        ptr[0] = ct.c_int64(type_index)
+        for i, value in enumerate(values):
+            ptr[i+1] = value.value
+
+        v = ct.cast(ptr, ct.c_void_p).value
+        return TraxObject(ct.c_int64(v if v is not None else 0))
+
     def call_function(self, func_ptr, args: list[TraxObject], const_table, return_buffer_size: int = 0):
         # Create a function pointer type
-        func_type = ffi.typeof("int(*)(trax_value*, trax_value*, trax_value*)")
+        func_type = ct.CFUNCTYPE(ct.c_int, ct.POINTER(ct.c_int64), ct.POINTER(ct.c_int64), ct.POINTER(ct.c_int64))
+        #func_type = ffi.typeof("int(*)(trax_value*, trax_value*, trax_value*)")
 
         # construct inputs
         if return_buffer_size == 0:
-            ret_buf = ffi.cast("trax_value *", 0)
+            ret_buf = ct.cast(ct.c_int(0), ct.POINTER(ct.c_int64))
         else:
-            ret_buf = ffi.new(f"trax_value[{return_buffer_size}]")
-        ptr = ffi.new(f"trax_value[{len(args)}]")
+            ret_buf = self.allocate(return_buffer_size)
+        ptr = self.allocate(len(args))
         for i, value in enumerate(args):
             ptr[i] = value.value
 
         # Cast the address to a function pointer
-        func_ptr = ffi.cast(func_type, func_ptr)
+        func_ptr = ct.cast(func_ptr, func_type)
 
         return_value = int(func_ptr(ptr, const_table, ret_buf))
         # TODO: free shit

@@ -1,6 +1,68 @@
 from trax_ast import *
 from trax_parser import parse
 
+def test_parse_new_pair():
+    code = """
+    struct Pair {
+        first;
+        second;
+    }
+    fn Pair:swap() {
+        var temp = self.first;
+        self.first = self.second;
+        self.second = temp;
+        return self;
+    }
+    fn Int:swap_pair(other) {
+        var pair = new Pair{self, other};
+        pair swap();
+        return pair;
+    }
+    """
+    result = parse(code)
+    assert result == [
+        Struct('Pair', [Field('first'), Field('second')]),
+        Method('Pair', 'swap', [],
+               Block([
+                   VarDecl('temp', Qualified(['self', 'first'])),
+                   Assign(Qualified(['self', 'first']), Qualified(['self', 'second'])),
+                   Assign(Qualified(['self', 'second']), Qualified(['temp'])),
+                   Return(Qualified(['self']))
+               ])),
+        Method('Int', 'swap_pair', ['other'],
+               Block([
+                   VarDecl('pair', NewExpr('Pair', [Qualified(['self']), Qualified(['other'])])),
+                   ExprStmt(MethodCall(Qualified(['pair']), 'swap', [])),
+                   Return(Qualified(['pair']))
+               ]))
+    ]
+
+
+def test_parse_struct_and_method():
+    code = """
+    struct Pair {
+        first;
+        second;
+    }
+    fn Pair:swap() {
+        var temp = self.first;
+        self.first = self.second;
+        self.second = temp;
+        return self;
+    }
+    """
+    result = parse(code)
+    assert result == [
+        Struct('Pair', [Field('first'), Field('second')]),
+        Method('Pair', 'swap', [],
+               Block([
+                   VarDecl('temp', Qualified(['self', 'first'])),
+                   Assign(Qualified(['self', 'first']), Qualified(['self', 'second'])),
+                   Assign(Qualified(['self', 'second']), Qualified(['temp'])),
+                   Return(Qualified(['self']))
+               ]))
+    ]
+
 def test_parse_struct():
     code = """
     struct Point {

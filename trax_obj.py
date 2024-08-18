@@ -1,9 +1,4 @@
-from cffi import FFI
-
-ffi = FFI()
-ffi.cdef("""
-    typedef int64_t trax_value;
-""")
+import ctypes as ct
 
 class TraxObject:
     INTEGER_TAG = 0b000
@@ -12,20 +7,28 @@ class TraxObject:
     FALSE_TAG = 0b011
     TRUE_TAG = 0b111
 
-    nil = ffi.cast("trax_value", NIL_TAG)
-    true = ffi.cast("trax_value", TRUE_TAG)
-    false = ffi.cast("trax_value", FALSE_TAG)
+    nil = ct.c_int64(NIL_TAG)
+    true = ct.c_int64(TRUE_TAG)
+    false = ct.c_int64(FALSE_TAG)
 
     @staticmethod
     def from_int(value):
-        return TraxObject(ffi.cast("trax_value", value << 1))
+        return TraxObject(ct.c_int64(value << 1))
+
+    @staticmethod
+    def from_bool(value):
+        return TraxObject(TraxObject.true if value else TraxObject.false)
 
     def to_int(self):
         assert self.is_integer()
         return int(self.value) >> 1
 
-    def __init__(self, value):
-        self.value = ffi.cast("trax_value", value)
+    def to_bool(self):
+        assert self.is_boolean()
+        return self.is_true()
+
+    def __init__(self, value: ct.c_int64):
+        self.value = value
 
     def is_integer(self):
         return (int(self.value) & 0b1) == 0
@@ -50,6 +53,9 @@ class TraxObject:
             raise ValueError("Not an object")
         return int(self.value) & 0xFFFFFFFFFFFFFFF8  # Mask out the lowest 3 bits
 
+    def get_obj_pointer(self):
+        return ct.cast(ct.c_uint64(self.get_object_address()), ct.POINTER(ct.c_int64))
+
     def get_type_index(self):
         if self.is_integer():
             return 0
@@ -58,7 +64,7 @@ class TraxObject:
         elif self.is_nil():
             return 2
         elif self.is_object():
-            ptr = ffi.cast("trax_value *", self.get_object_address())
+            ptr = self.get_obj_pointer()
             return int(ptr[0])
         else:
             raise ValueError("Unknown object type")
@@ -77,32 +83,12 @@ class TraxObject:
         else:
             return f"Unknown(0x{int(self.value):x})"
 
-    @staticmethod
-    def new(type_index, values):
-        size = (len(values) + 1) * ffi.sizeof("trax_value")
-        ptr = ffi.new(f"trax_value[{len(values) + 1}]")
-        ptr[0] = ffi.cast("trax_value", type_index)
-        for i, value in enumerate(values, 1):
-            ptr[i] = value.value
-        iptr = ffi.cast("trax_value", ptr)
-        iptr_tag = int(iptr) | TraxObject.OBJECT_TAG
-        return TraxObject(ffi.cast("trax_value", iptr_tag))
-
-    @staticmethod
-    def free(obj):
-        if not obj.is_object():
-            raise ValueError("Cannot free a non-object")
-        ptr = ffi.cast("trax_value *", obj.get_object_address())
-        ffi.release(ptr)
-
     def get_field(self, field_index):
         if not self.is_object():
             raise ValueError("Cannot get field of a non-object")
-        ptr = ffi.cast("trax_value *", self.get_object_address())
-        return TraxObject(ptr[field_index + 1])
+        return TraxObject(self.get_obj_pointer()[field_index + 1])
 
     def set_field(self, field_index, value):
         if not self.is_object():
             raise ValueError("Cannot set field of a non-object")
-        ptr = ffi.cast("trax_value *", self.get_object_address())
-        ptr[field_index + 1] = value.value
+        self.get_obj_pointer()[field_index + 1] = value.value

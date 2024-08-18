@@ -134,13 +134,14 @@ class Compiler:
     def compile_methods(self):
         for type_name, type_info in self.types.items():
             for method_name, (args, body) in type_info['methods'].items():
+                print(method_name, args)
                 mb = MethodBuilder(type_name, method_name)
 
                 # Map arguments to stack indices
                 stack_map = {'self': len(args)}
                 for i, arg in enumerate(reversed(args)):
                     stack_map[arg] = i
-
+                print("stack_map: ", stack_map)
                 # Compile the method body with the stack map
                 self.compile_block(body, mb, stack_map, len(args) + 1)
 
@@ -154,7 +155,7 @@ class Compiler:
         for stmt in block.stmts:
             if isinstance(stmt, VarDecl):
                 new_stack_map = {k: v + 1 for k, v in stack_map.items()}
-                self.compile_expr(stmt.expr, mb, new_stack_map)
+                self.compile_expr(stmt.expr, mb, stack_map)
                 new_stack_map[stmt.name] = 0
                 stack_map = new_stack_map
             else:
@@ -165,12 +166,12 @@ class Compiler:
             self.compile_expr(stmt.expr, mb, stack_map)
             if isinstance(stmt.qualified, Qualified):
                 if stmt.qualified.names[0] == 'self' and len(stmt.qualified.names) == 2:
-                    mb.dup(stack_map['self'])
+                    mb.dup(stack_map['self'] + 1)
                     mb.set_field(self.types[mb.typename]['field_indices'][stmt.qualified.names[1]])
                 elif len(stmt.qualified.names) == 1:
                     var = stmt.qualified.names[0]
                     if var in stack_map:
-                        mb.set(stack_map[var])
+                        mb.set(stack_map[var] + 1)
                     else:
                         raise ValueError(f"Unknown variable: {var}")
                 else:
@@ -239,6 +240,14 @@ class Compiler:
         elif isinstance(expr, Constant):
             mb.push_const(len(self.constants))
             self.constants.append(expr.value)
+        elif isinstance(expr, NewExpr):
+            if expr.class_name not in self.types:
+                raise ValueError(f"Unknown type: {expr.class_name}")
+            type_info = self.types[expr.class_name]
+            for arg in expr.args:
+                self.compile_expr(arg, mb, stack_map, stack_depth)
+                stack_depth += 1
+            mb.new(type_info['type_index'], len(type_info['fields']))
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
 

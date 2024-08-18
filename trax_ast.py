@@ -107,6 +107,14 @@ class Qualified(AST):
     def __eq__(self, other):
         return isinstance(other, Qualified) and self.names == other.names
 
+class NewExpr(AST):
+    def __init__(self, class_name, args):
+        self.class_name = class_name
+        self.args = args
+
+    def __eq__(self, other):
+        return isinstance(other, NewExpr) and self.class_name == other.class_name and self.args == other.args
+
 class MethodCall(AST):
     def __init__(self, obj, method, args):
         self.obj = obj

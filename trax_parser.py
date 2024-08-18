@@ -16,7 +16,8 @@ if_stmt -> 'if' expr block
          | 'if' expr block 'else' block
 assign -> qualified '=' expr ';'
 expr -> prim (id arg)*
-prim -> '(' expr ')' | id | int
+prim -> '(' expr ')' | id | int | new_expr
+new_expr -> 'new' id '{' exprlist? '}'
 arg -> '(' exprlist? ')' | qualified
 qualified -> id ('.' id)*
 exprlist -> expr
@@ -179,7 +180,20 @@ class Parser:
         elif self.match('num'):
             v = int(self.consume('num'))
             return Constant(TraxObject(v << 1))
+        elif self.match('new'):
+            return self.parse_new_expr()
         return self.parse_qualified()
+
+    def parse_new_expr(self):
+        self.consume('new')
+        class_name = self.consume('id')
+        self.consume('{')
+        if self.match('}'):
+            self.consume('}')
+            return NewExpr(class_name, [])
+        args = self.parse_exprlist()
+        self.consume('}')
+        return NewExpr(class_name, args)
 
     def parse_qualified(self):
         qualified = [self.consume('id')]
@@ -221,10 +235,12 @@ class Parser:
             token = self.tokens[self.current]
             self.current += 1
             return token.value
-        raise SyntaxError(f"Expected {expected_type}, got {self.tokens[self.current].type}")
+        to_show = self.tokens[self.current:self.current+5]
+        to_show = [str(t) for t in to_show]
+        raise SyntaxError(f"Expected {expected_type}, tokens[:5]={to_show}, got {self.tokens[self.current].type}")
 
 def tokenize(code):
-    keywords = {'return', 'struct', 'var', 'fn', 'for', 'in', 'while', 'if', 'else', '=', '.'}
+    keywords = {'return', 'struct', 'var', 'fn', 'for', 'in', 'while', 'if', 'else', '=', '.', 'new'}
     token_specification = [
         ('id',    r'[A-Za-z_][A-Za-z0-9_]*|[~`!@#$%^&*\-+=\[\]<>.?/]'),
         ('num',   r'\d+(\.\d*)?'),

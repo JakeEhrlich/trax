@@ -120,6 +120,20 @@ class BinaryOpInstruction(ValueInstruction):
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right), self.type_index)
 
+class UnaryOpInstruction(ValueInstruction):
+    def __init__(self, operand, type_index):
+        self.operand = operand
+        self.type_index = type_index
+
+    def get_live_values(self):
+        return [self.operand]
+
+    def pretty_print(self, value_to_name):
+        return f"{value_to_name(self)} = {self.__class__.__name__}({value_to_name(self.operand)})"
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand), self.type_index)
+
 class BoolBinInstruction(BinaryOpInstruction):
     def __init__(self, left, right):
         self.left = left
@@ -129,7 +143,18 @@ class BoolBinInstruction(BinaryOpInstruction):
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right))
 
+class BoolUnaryInstruction(UnaryOpInstruction):
+    def __init__(self, operand):
+        self.operand = operand
+        self.type_index = 2
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand))
+
 class EqInstruction(BoolBinInstruction):
+    pass
+
+class NeInstruction(BoolBinInstruction):
     pass
 
 class LtInstruction(BoolBinInstruction):
@@ -144,7 +169,16 @@ class LeInstruction(BoolBinInstruction):
 class GeInstruction(BoolBinInstruction):
     pass
 
-class NeInstruction(BoolBinInstruction):
+class LogicalOrInstruction(BoolBinInstruction):
+    pass
+
+class LogicalAndInstruction(BoolBinInstruction):
+    pass
+
+class LogicalNotInstruction(BoolUnaryInstruction):
+    pass
+
+class IntToBoolInstruction(BoolUnaryInstruction):
     pass
 
 class IntBinInstruction(BinaryOpInstruction):
@@ -155,6 +189,14 @@ class IntBinInstruction(BinaryOpInstruction):
 
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right))
+
+class IntUnaryInstruction(UnaryOpInstruction):
+    def __init__(self, operand):
+        self.operand = operand
+        self.type_index = 0
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand))
 
 class AddInstruction(IntBinInstruction):
     pass
@@ -169,6 +211,36 @@ class DivInstruction(IntBinInstruction):
     pass
 
 class ModInstruction(IntBinInstruction):
+    pass
+
+class MaxInstruction(IntBinInstruction):
+    pass
+
+class MinInstruction(IntBinInstruction):
+    pass
+
+class BwAndInstruction(IntBinInstruction):
+    pass
+
+class BwOrInstruction(IntBinInstruction):
+    pass
+
+class BwXorInstruction(IntBinInstruction):
+    pass
+
+class LslInstruction(IntBinInstruction):
+    pass
+
+class LsrInstruction(IntBinInstruction):
+    pass
+
+class AsrInstruction(IntBinInstruction):
+    pass
+
+class BwNotInstruction(IntUnaryInstruction):
+    pass
+
+class BoolToIntInstruction(IntUnaryInstruction):
     pass
 
 class InputInstruction(ValueInstruction):
@@ -333,6 +405,56 @@ class TraceCompiler:
 
     def ge(self, left, right):
         instruction = GeInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def logical_and(self, left, right):
+        instruction = LogicalAndInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def logical_or(self, left, right):
+        instruction = LogicalOrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def logical_not(self, operand):
+        instruction = LogicalNotInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_and(self, left, right):
+        instruction = BwAndInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_or(self, left, right):
+        instruction = BwOrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_xor(self, left, right):
+        instruction = BwXorInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def max(self, left, right):
+        instruction = MaxInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def min(self, left, right):
+        instruction = MinInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bool_to_int(self, operand):
+        instruction = BoolToIntInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def int_to_bool(self, operand):
+        instruction = IntToBoolInstruction(operand)
         self.add_instruction(instruction)
         return instruction
 
