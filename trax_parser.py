@@ -179,7 +179,7 @@ class Parser:
             return expr
         elif self.match('num'):
             v = int(self.consume('num'))
-            return Constant(TraxObject(v << 1))
+            return Constant(TraxObject.from_int(v))
         elif self.match('new'):
             return self.parse_new_expr()
         return self.parse_qualified()
@@ -214,7 +214,7 @@ class Parser:
 
         if self.match('num'):
             v = int(self.consume('num'))
-            return [Constant(TraxObject(v << 1))]
+            return [Constant(TraxObject.from_int(v))]
 
         return [self.parse_qualified()]
 
@@ -235,14 +235,15 @@ class Parser:
             token = self.tokens[self.current]
             self.current += 1
             return token.value
-        to_show = self.tokens[self.current:self.current+5]
+        start = max(0, self.current - 5)
+        to_show = self.tokens[start:self.current+5]
         to_show = [str(t) for t in to_show]
-        raise SyntaxError(f"Expected {expected_type}, tokens[:5]={to_show}, got {self.tokens[self.current].type}")
+        raise SyntaxError(f"Expected {expected_type}, tokens[{start - self.current}:5]={to_show}, got {self.tokens[self.current].type}")
 
 def tokenize(code):
     keywords = {'return', 'struct', 'var', 'fn', 'for', 'in', 'while', 'if', 'else', '=', '.', 'new'}
     token_specification = [
-        ('id',    r'[A-Za-z_][A-Za-z0-9_]*|[~`!@#$%^&*\-+=\[\]<>.?/]'),
+        ('id',    r'[A-Za-z_][A-Za-z0-9_]*|[~!@#$%^&*\-+=\[\]<>.?/]+'),
         ('num',   r'\d+(\.\d*)?'),
         ('paren', r'[()]'),
         ('brace', r'[{}]'),

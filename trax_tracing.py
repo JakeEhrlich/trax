@@ -438,6 +438,26 @@ class TraceCompiler:
         self.add_instruction(instruction)
         return instruction
 
+    def bw_not(self, operand):
+        instruction = BwNotInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def lsl(self, left, right):
+        instruction = LslInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def lsr(self, left, right):
+        instruction = LsrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def asr(self, left, right):
+        instruction = AsrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
     def max(self, left, right):
         instruction = MaxInstruction(left, right)
         self.add_instruction(instruction)

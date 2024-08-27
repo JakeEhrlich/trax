@@ -131,6 +131,47 @@ class IntegerMethods:
         return tc.int_to_bool(arg1)
 
     @staticmethod
+    def bitwise_and_trace(interp: InterpInterface, arg1: ValueInstruction, arg2: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        interp.emit_guard_index(arg2, 0)
+        return tc.bw_and(arg1, arg2)
+
+    @staticmethod
+    def bitwise_or_trace(interp: InterpInterface, arg1: ValueInstruction, arg2: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        interp.emit_guard_index(arg2, 0)
+        return tc.bw_or(arg1, arg2)
+
+    @staticmethod
+    def bitwise_xor_trace(interp: InterpInterface, arg1: ValueInstruction, arg2: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        interp.emit_guard_index(arg2, 0)
+        return tc.bw_xor(arg1, arg2)
+
+    @staticmethod
+    def bitwise_not_trace(interp: InterpInterface, arg1: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        return tc.bw_not(arg1)
+
+    @staticmethod
+    def left_shift_trace(interp: InterpInterface, arg1: ValueInstruction, arg2: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        interp.emit_guard_index(arg2, 0)
+        return tc.lsl(arg1, arg2)
+
+    @staticmethod
+    def right_shift_trace(interp: InterpInterface, arg1: ValueInstruction, arg2: ValueInstruction):
+        tc = interp.trace_compiler
+        interp.emit_guard_index(arg1, 0)
+        interp.emit_guard_index(arg2, 0)
+        return tc.lsr(arg1, arg2)
+
+    @staticmethod
     def interpreter_builtin(instruction_name):
         def builtin(*args):
             trace_compiler = TraceCompiler()
@@ -147,7 +188,9 @@ class IntegerMethods:
         method_mapping = {
             'add': '+', 'sub': '-', 'mul': '*', 'div': '/', 'mod': '%',
             'lt': '<', 'gt': '>', 'le': '<=', 'ge': '>=', 'eq': '==', 'ne': '!=',
-            'min': 'min', 'max': 'max', 'to_bool': 'to_bool'
+            'min': 'min', 'max': 'max', 'to_bool': 'to_bool',
+            'bitwise_and': '&', 'bitwise_or': '|', 'bitwise_xor': '^',
+            'bitwise_not': 'bitwise_not', 'left_shift': '<<', 'right_shift': '>>'
         }
         for alpha_name, symbol in method_mapping.items():
             interpreter.add_builtin_method(0, symbol, IntegerMethods.interpreter_builtin(alpha_name), getattr(IntegerMethods, f"{alpha_name}_trace"))
@@ -210,7 +253,7 @@ class BooleanMethods:
             'and': '&', 'or': '|', 'not': '!', 'eq': '==', 'ne': '!=', 'to_int': 'to_int'
         }
         for alpha_name, symbol in method_mapping.items():
-            interpreter.add_builtin_method(2, symbol, BooleanMethods.interpreter_builtin(alpha_name), getattr(BooleanMethods, f"{alpha_name}_trace"))
+            interpreter.add_builtin_method(1, symbol, BooleanMethods.interpreter_builtin(alpha_name), getattr(BooleanMethods, f"{alpha_name}_trace"))
 
 class DefaultRuntime:
     @staticmethod

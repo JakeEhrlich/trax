@@ -52,12 +52,12 @@ class AArch64Assembler:
         instruction = 0xCB000000 | (rm << 16) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def sub_imm(self, rd, rn, imm):
+    def sub_imm(self, rd, rn, *, imm):
         assert 0 <= imm < 4096
         instruction = 0xD1000000 | (imm << 10) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def add_imm(self, rd, rn, imm):
+    def add_imm(self, rd, rn, *, imm):
         assert 0 <= imm < 4096
         instruction = 0x91000000 | (imm << 10) | (rn << 5) | rd
         self._append_instruction(instruction)
@@ -66,7 +66,7 @@ class AArch64Assembler:
         instruction = 0xEB000000 | (rm << 16) | (rn << 5) | 0x1F
         self._append_instruction(instruction)
 
-    def cmp_imm(self, rn, imm):
+    def cmp_imm(self, rn, *, imm):
         assert 0 <= imm < 4096
         instruction = 0xF1000000 | (imm << 10) | (rn << 5) | 0x1F
         self._append_instruction(instruction)
@@ -75,17 +75,17 @@ class AArch64Assembler:
         instruction = 0xAA0003E0 | (rm << 16) | rd
         self._append_instruction(instruction)
 
-    def mov_imm(self, rd, imm):
+    def mov_imm(self, rd, *, imm):
         assert 0 <= imm < 65536
         instruction = 0xD2800000 | (imm << 5) | rd
         self._append_instruction(instruction)
 
-    def ldr(self, rt, rn, imm=0):
+    def ldr(self, rt, rn, *, imm=0):
         assert imm % 8 == 0
         instruction = 0xF9400000 | ((imm >> 3) << 10) | (rn << 5) | rt
         self._append_instruction(instruction)
 
-    def str(self, rt, rn, imm=0):
+    def str(self, rt, rn, *, imm=0):
         assert imm % 8 == 0
         instruction = 0xF9000000 | ((imm >> 3) << 10) | (rn << 5) | rt
         self._append_instruction(instruction)
@@ -147,27 +147,27 @@ class AArch64Assembler:
             reloc.apply(self.code)
         return bytes(self.code)
 
-    def and_imm(self, rd, rn, imm):
+    def and_imm(self, rd, rn, *, imm):
         assert 0 <= imm < 4096
         instruction = 0x92000000 | (imm << 10) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def lsl(self, rd, rn, shift):
+    def lsl_imm(self, rd, rn, *, shift):
         assert 0 <= shift < 64
         instruction = 0xD3400000 | ((64 - shift) << 16) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def lsr(self, rd, rn, shift):
+    def lsr_imm(self, rd, rn, *, shift):
         assert 0 <= shift < 64
         instruction = 0xD3400000 | (shift << 16) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def asr(self, rd, rn, shift):
+    def asr_imm(self, rd, rn, *, shift):
         assert 0 <= shift < 64
         instruction = 0x93400000 | (shift << 16) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def ands(self, rd, rn, immr, imms):
+    def ands_imm(self, rd, rn, *, immr, imms):
         assert 0 <= immr < 64 and 0 <= imms < 64
         instruction = 0xF2000000 | (immr << 16) | (imms << 10) | (rn << 5) | rd | (1 << 22)
         self._append_instruction(instruction)
@@ -176,6 +176,30 @@ class AArch64Assembler:
         instruction = 0xCA000000 | (rm << 16) | (rn << 5) | rd
         self._append_instruction(instruction)
 
-    def csel(self, rd, rn, rm, cond):
+    def csel(self, rd, rn, rm, *, cond):
         instruction = 0x9A800000 | (rm << 16) | (cond << 12) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def bwand(self, rd, rn, rm):
+        instruction = 0x8A000000 | (rm << 16) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def orr(self, rd, rn, rm):
+        instruction = 0xAA000000 | (rm << 16) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def lsl(self, rd, rn, rm):
+        instruction = 0x9AC02000 | (rm << 16) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def lsr(self, rd, rn, rm):
+        instruction = 0x9AC02400 | (rm << 16) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def asr(self, rd, rn, rm):
+        instruction = 0x9AC02800 | (rm << 16) | (rn << 5) | rd
+        self._append_instruction(instruction)
+
+    def mvn(self, rd, rm):
+        instruction = 0xAA2003E0 | (rm << 16) | rd
         self._append_instruction(instruction)

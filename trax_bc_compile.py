@@ -91,7 +91,7 @@ class Compiler:
     def __init__(self, ast):
         self.ast = ast
         self.types = {}
-        self.constants = [TraxObject(TraxObject.NIL_TAG)]
+        self.constants = [TraxObject(TraxObject.nil)]
         self.method_map = {}
         self.add_builtin_type('Int')
         self.add_builtin_type('Bool')

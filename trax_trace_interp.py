@@ -63,6 +63,44 @@ class TraceInterpreter:
                 left = value_map[inst.left].to_int()
                 right = value_map[inst.right].to_int()
                 value_map[inst] = TraxObject.from_bool(left >= right)
+            elif isinstance(inst, MaxInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(max(left, right))
+            elif isinstance(inst, MinInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(min(left, right))
+            elif isinstance(inst, BwAndInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left & right)
+            elif isinstance(inst, BwOrInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left | right)
+            elif isinstance(inst, BwXorInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left ^ right)
+            elif isinstance(inst, LslInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left << right)
+            elif isinstance(inst, LsrInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left >> right)
+            elif isinstance(inst, AsrInstruction):
+                left = value_map[inst.left].to_int()
+                right = value_map[inst.right].to_int()
+                value_map[inst] = TraxObject.from_int(left >> right)
+            elif isinstance(inst, BoolToIntInstruction):
+                operand = value_map[inst.operand]
+                value_map[inst] = TraxObject.from_int(1 if operand.is_true() else 0)
+            elif isinstance(inst, IntToBoolInstruction):
+                operand = value_map[inst.operand].to_int()
+                value_map[inst] = TraxObject.from_bool(bool(operand))
             elif isinstance(inst, GetFieldInstruction):
                 obj = value_map[inst.obj]
                 value_map[inst] = obj.get_field(inst.field_index)
@@ -70,8 +108,8 @@ class TraceInterpreter:
                 obj = value_map[inst.obj]
                 value = value_map[inst.value]
                 obj.set_field(inst.field_index, value)
-            elif isinstance(inst, NewInstruction):
-                value_map[inst] = TraxObject.new(inst.type_index, [])
+            #elif isinstance(inst, NewInstruction):
+            #    value_map[inst] = TraxObject.new(inst.type_index, [])
             elif isinstance(inst, GuardInstruction):
                 operand = value_map[inst.operand]
                 if isinstance(inst, GuardNil) and not operand.is_nil():
@@ -85,6 +123,6 @@ class TraceInterpreter:
                 elif isinstance(inst, GuardIndex) and (not operand.is_object() or operand.get_type_index() != inst.type_index):
                     raise GuardException(inst, value_map)
             else:
-                raise ValueError(f"Unknown instruction type: {type(inst)}")
+                raise ValueError(f"Trace interpreter not implemented instruction: type: {type(inst)}")
 
         return value_map[return_value]

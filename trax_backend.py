@@ -88,19 +88,21 @@ class AppleSiliconBackend(Backend):
         return const_table
 
     def allocate(self, size: int):
-        return self.malloc(ct.sizeof(ct.c_int64) * size)
+        p = self.malloc(ct.sizeof(ct.c_int64) * size)
+        return ct.cast(p, ct.POINTER(ct.c_int64))
 
     def new(self, type_index: int, values: list[TraxObject]) -> TraxObject:
-        ptr = self.malloc(ct.sizeof(ct.c_int64) * (1 + len(values)))
-        ptr = ct.cast(ptr, ct.POINTER(ct.c_int64))
+        ptr = self.allocate(1 + len(values))
         ptr[0] = ct.c_int64(type_index)
         for i, value in enumerate(values):
             ptr[i+1] = value.value
 
         v = ct.cast(ptr, ct.c_void_p).value
-        return TraxObject(ct.c_int64(v if v is not None else 0))
+        assert v is not None
+        return TraxObject(ct.c_int64(v | TraxObject.OBJECT_TAG))
 
     def call_function(self, func_ptr, args: list[TraxObject], const_table, return_buffer_size: int = 0):
+        print("call_function: ", args, const_table, return_buffer_size)
         # Create a function pointer type
         func_type = ct.CFUNCTYPE(ct.c_int, ct.POINTER(ct.c_int64), ct.POINTER(ct.c_int64), ct.POINTER(ct.c_int64))
         #func_type = ffi.typeof("int(*)(trax_value*, trax_value*, trax_value*)")
@@ -117,11 +119,13 @@ class AppleSiliconBackend(Backend):
         # Cast the address to a function pointer
         func_ptr = ct.cast(func_ptr, func_type)
 
+        # TODO: We should change the API so that the ret_buf and ptr are the same...maybe also const_table but use negative indexes for it
+        # This would give us back 2 registers!!!
         return_value = int(func_ptr(ptr, const_table, ret_buf))
         # TODO: free shit
         return_values = []
         for i in range(return_buffer_size):
-            return_values.append(TraxObject(ret_buf[i]))
+            return_values.append(TraxObject(ct.c_int64(ret_buf[i])))
 
         return return_value, return_values
 
@@ -145,7 +149,7 @@ class AppleSiliconBackend(Backend):
 
         # Save caller-save registers
         if stack_size > 0:
-            asm.sub_imm(31, 31, stack_size)
+            asm.sub_imm(31, 31, imm=stack_size)
         for i, reg in enumerate(used_caller_save):
             asm.str(reg, 31, imm=i * 8)
 
@@ -198,9 +202,9 @@ class AppleSiliconBackend(Backend):
 
         # Restore caller-save registers
         for i, reg in enumerate(used_caller_save):
-            asm.ldr(reg, 31, i * 8)
+            asm.ldr(reg, 31, imm=i * 8)
         if stack_size > 0:
-            asm.add_imm(31, 31, stack_size)
+            asm.add_imm(31, 31, imm=stack_size)
 
         asm.ret()
 
@@ -211,27 +215,27 @@ class AppleSiliconBackend(Backend):
         if isinstance(inst, GuardInstruction):
             reg = register_allocation[inst.operand]
             if isinstance(inst, GuardInt):
-                asm.ands(31, reg, immr=0, imms=0)
+                asm.ands_imm(31, reg, immr=0, imms=0)
                 asm.bne(guard_exits[inst.guard_id])
             elif isinstance(inst, GuardNil):
-                asm.ands(17, reg, immr=0, imms=2)
-                asm.cmp_imm(17, TraxObject.NIL_TAG)
+                asm.ands_imm(17, reg, immr=0, imms=2)
+                asm.cmp_imm(17, imm=TraxObject.NIL_TAG)
                 asm.bne(guard_exits[inst.guard_id])
             elif isinstance(inst, GuardTrue):
-                asm.ands(17, reg, immr=0, imms=2)
-                asm.cmp_imm(17, TraxObject.TRUE_TAG)
+                asm.ands_imm(17, reg, immr=0, imms=2)
+                asm.cmp_imm(17, imm=TraxObject.TRUE_TAG)
                 asm.bne(guard_exits[inst.guard_id])
             elif isinstance(inst, GuardBool):
-                asm.ands(17, reg, immr=0, imms=1)
+                asm.ands_imm(17, reg, immr=0, imms=1)
                 asm.cmp_imm(17, imm=0b11)
                 asm.bne(guard_exits[inst.guard_id])
             elif isinstance(inst, GuardIndex):
-                asm.ands(16, reg, immr=60, imms=60)
+                asm.ands_imm(16, reg, immr=60, imms=60)
                 asm.ldr(16, 16) # Load as early as possible
-                asm.ands(17, reg, immr=0, imms=2) # Follow up with parallel inst
-                asm.cmp_imm(17, TraxObject.OBJECT_TAG) # Do some compute while loading
+                asm.ands_imm(17, reg, immr=0, imms=2) # Follow up with parallel inst
+                asm.cmp_imm(17, imm=TraxObject.OBJECT_TAG) # Do some compute while loading
                 asm.bne(guard_exits[inst.guard_id]) # Should be ~free
-                asm.cmp_imm(16, inst.type_index) # After load is  done one more cycle
+                asm.cmp_imm(16, imm=inst.type_index) # After load is  done one more cycle
                 asm.bne(guard_exits[inst.guard_id]) # Should be ~free
             elif isinstance(inst, GuardLT):
                 reg2 = register_allocation[inst.right]
@@ -271,13 +275,30 @@ class AppleSiliconBackend(Backend):
                 asm.mov_imm(16, imm=TraxObject.TRUE_TAG)
                 asm.cmp(rn, rm)
                 asm.csel(rd, 16, 17, cond=AArch64Assembler.LT)
+            elif isinstance(inst, BwAndInstruction):
+                asm.bwand(rd, rn, rm)
+            elif isinstance(inst, BwOrInstruction):
+                asm.orr(rd, rn, rm)
+            elif isinstance(inst, BwXorInstruction):
+                asm.eor(rd, rn, rm)
+            elif isinstance(inst, LslInstruction):
+                asm.lsl(rd, rn, rm)
+            elif isinstance(inst, LsrInstruction):
+                asm.lsr(rd, rn, rm)
+            elif isinstance(inst, AsrInstruction):
+                asm.asr(rd, rn, rm)
             # Add more binary operations as needed
+        elif isinstance(inst, UnaryOpInstruction):
+            rd = register_allocation[inst]
+            rn = register_allocation[inst.operand]
+            if isinstance(inst, BwNotInstruction):
+                asm.mvn(rd, rn)
         elif isinstance(inst, ConstantInstruction):
             rd = register_allocation[inst]
-            asm.ldr(rd, 1, inst.constant_index * 8) # x1 points to const array
+            asm.ldr(rd, 1, imm=inst.constant_index * 8) # x1 points to const array
         elif isinstance(inst, InputInstruction):
             rd = register_allocation[inst]
-            asm.ldr(rd, 0, inst.input_index * 8) # x0 points to inputs array
+            asm.ldr(rd, 0, imm=inst.input_index * 8) # x0 points to inputs array
             pass
         elif isinstance(inst, CopyInstruction):
             rd = register_allocation[inst.input]
@@ -286,5 +307,5 @@ class AppleSiliconBackend(Backend):
                 asm.mov(rd, rm)
             pass
         else:
-            raise NotImplemented(f"No implementation for {type(inst)} in {type(self)}")
+            raise NotImplementedError(f"No implementation for {type(inst)} in {type(self)}")
         # Add more instruction types as needed

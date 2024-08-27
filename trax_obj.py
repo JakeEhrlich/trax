@@ -13,48 +13,51 @@ class TraxObject:
 
     @staticmethod
     def from_int(value):
+        assert type(value) is int
         return TraxObject(ct.c_int64(value << 1))
 
     @staticmethod
     def from_bool(value):
+        assert value is True or value is False
         return TraxObject(TraxObject.true if value else TraxObject.false)
 
     def to_int(self):
         assert self.is_integer()
-        return int(self.value) >> 1
+        return self.value.value >> 1
 
     def to_bool(self):
         assert self.is_boolean()
         return self.is_true()
 
     def __init__(self, value: ct.c_int64):
+        assert type(value) is ct.c_int64
         self.value = value
 
     def is_integer(self):
-        return (int(self.value) & 0b1) == 0
+        return (self.value.value & 0b1) == 0
 
     def is_nil(self):
-        return (int(self.value) & 0b111) == self.NIL_TAG
+        return (self.value.value & 0b111) == self.NIL_TAG
 
     def is_true(self):
-        return (int(self.value) & 0b111) == self.TRUE_TAG
+        return (self.value.value & 0b111) == self.TRUE_TAG
 
     def is_false(self):
-        return (int(self.value) & 0b111) == self.FALSE_TAG
+        return (self.value.value & 0b111) == self.FALSE_TAG
 
     def is_boolean(self):
         return self.is_true() or self.is_false()
 
     def is_object(self):
-        return (int(self.value) & 0b111) == self.OBJECT_TAG
+        return (self.value.value & 0b111) == self.OBJECT_TAG
 
-    def get_object_address(self):
+    def get_object_address(self) -> int:
         if not self.is_object():
             raise ValueError("Not an object")
-        return int(self.value) & 0xFFFFFFFFFFFFFFF8  # Mask out the lowest 3 bits
+        return self.value.value & 0xFFFFFFFFFFFFFFF8  # Mask out the lowest 3 bits
 
     def get_obj_pointer(self):
-        return ct.cast(ct.c_uint64(self.get_object_address()), ct.POINTER(ct.c_int64))
+        return ct.cast(self.get_object_address(), ct.POINTER(ct.c_int64))
 
     def get_type_index(self):
         if self.is_integer():
@@ -71,7 +74,7 @@ class TraxObject:
 
     def __repr__(self):
         if self.is_integer():
-            return f"Integer({int(self.value) >> 1})"
+            return f"Integer({self.value.value >> 1})"
         elif self.is_nil():
             return "Nil"
         elif self.is_true():
@@ -81,12 +84,13 @@ class TraxObject:
         elif self.is_object():
             return f"Object(address=0x{self.get_object_address():x}, type={self.get_type_index()})"
         else:
-            return f"Unknown(0x{int(self.value):x})"
+            return f"Unknown(0x{self.value.value:x})"
 
     def get_field(self, field_index):
         if not self.is_object():
             raise ValueError("Cannot get field of a non-object")
-        return TraxObject(self.get_obj_pointer()[field_index + 1])
+        v = self.get_obj_pointer()[field_index + 1]
+        return TraxObject(ct.c_int64(v))
 
     def set_field(self, field_index, value):
         if not self.is_object():
