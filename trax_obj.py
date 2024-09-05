@@ -1,6 +1,10 @@
 import ctypes as ct
 
 class TraxObject:
+    # We use lower order bits for pointer tagging
+    # The lowest order bit if set means this is an integer
+    # The remaining 4 possible casses are for nil, object, true, and false
+    # The second lowest order bit being set means its a boolean
     INTEGER_TAG = 0b000
     NIL_TAG = 0b001
     OBJECT_TAG = 0b101
@@ -59,13 +63,15 @@ class TraxObject:
     def get_obj_pointer(self):
         return ct.cast(self.get_object_address(), ct.POINTER(ct.c_int64))
 
+    # TODO: This function has been the source of many bugs
+    #       We should find a way to standardize these better
     def get_type_index(self):
         if self.is_integer():
             return 0
         elif self.is_boolean():
-            return 1
-        elif self.is_nil():
             return 2
+        elif self.is_nil():
+            return 1
         elif self.is_object():
             ptr = self.get_obj_pointer()
             return int(ptr[0])

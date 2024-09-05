@@ -203,3 +203,8 @@ class AArch64Assembler:
     def mvn(self, rd, rm):
         instruction = 0xAA2003E0 | (rm << 16) | rd
         self._append_instruction(instruction)
+
+    def brk(self, *, imm=0xf000):
+        assert 0 <= imm < 65536
+        instruction = 0xD4200000 | (imm << 5)
+        self._append_instruction(instruction)

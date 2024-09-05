@@ -137,7 +137,7 @@ def test_interpret_sum_to_100():
     assert result.is_integer()
     assert result.to_int() == 5050  # Sum of numbers from 1 to 99
 
-def test_gravler_sim():
+def test_gravler_sim_full():
     code = """
     struct Rng {
         state;
@@ -177,3 +177,42 @@ def test_gravler_sim():
 
     assert result.is_integer()
     assert result.to_int() == 5050  # Sum of numbers from 1 to 99
+
+def test_gravler_sim():
+    code = """
+    struct Rng {
+        state;
+    }
+    fn Rng:sample() {
+        self.state = (self.state * 16807) & 4294967295;
+        return self.state;
+    }
+    fn Rng:roll() {
+        var i = 1;
+        var count = 0;
+        while i < 231 {
+            count = count + (self sample() & 3 == 0 to_int());
+            i = i + 1;
+        }
+        return count;
+    }
+    fn Int:gravler_sim() {
+        var rng = new Rng{594676966};
+        return rng roll();
+    }
+    """
+    ast = parse(code)
+    compiler = Compiler(ast)
+    constants, method_map = compiler.compile()
+
+    interpreter = Interpreter(constants, method_map)
+    DefaultRuntime.add_methods_to_interpreter(interpreter)
+
+    input_value = TraxObject.from_int(101)
+    result = interpreter.run(input_value, 'gravler_sim')
+
+    assert result.is_integer()
+    print("result: ", result.to_int())
+
+if __name__ == "__main__":
+    test_gravler_sim()

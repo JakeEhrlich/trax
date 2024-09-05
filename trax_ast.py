@@ -1,133 +1,161 @@
+import contextlib
+from trax_obj import TraxObject
+from dataclasses import dataclass
+
+@dataclass
+class SourceLocation:
+    line: int
+    column: int
+
+    def __str__(self):
+        return f"line {self.line}, column {self.column}"
+
+_location_stack = []
+
+@contextlib.contextmanager
+def src_loc(line, column):
+    _location_stack.append(SourceLocation(line, column))
+    try:
+        yield
+    finally:
+        _location_stack.pop()
+
+def get_current_location():
+    return _location_stack[-1] if _location_stack else SourceLocation(0, 0)
+
 class AST:
+    def __init__(self):
+        self.location = get_current_location()
+
+class Expr(AST):
     pass
 
+class Stmt(AST):
+    pass
+
+@dataclass
 class Struct(AST):
-    def __init__(self, name, fields):
-        self.name = name
-        self.fields = fields
+    name: str
+    fields: list['Field']
 
-    def __eq__(self, other):
-        return isinstance(other, Struct) and self.name == other.name and self.fields == other.fields
+    def __post_init__(self):
+        super().__init__()
 
+@dataclass
 class Field(AST):
-    def __init__(self, name):
-        self.name = name
+    name: str
 
-    def __eq__(self, other):
-        return isinstance(other, Field) and self.name == other.name
+    def __post_init__(self):
+        super().__init__()
 
+@dataclass
 class Method(AST):
-    def __init__(self, class_name, method_name, args, body):
-        self.class_name = class_name
-        self.method_name = method_name
-        self.args = args
-        self.body = body
+    class_name: str
+    method_name: str
+    args: list[str]
+    body: 'Block'
 
-    def __eq__(self, other):
-        return isinstance(other, Method) and self.class_name == other.class_name and \
-               self.method_name == other.method_name and self.args == other.args and self.body == other.body
+    def __post_init__(self):
+        super().__init__()
 
+@dataclass
 class Block(AST):
-    def __init__(self, stmts):
-        self.stmts = stmts
+    stmts: list[Stmt]
 
-    def __eq__(self, other):
-        return isinstance(other, Block) and self.stmts == other.stmts
+    def __post_init__(self):
+        super().__init__()
 
-class Assign(AST):
-    def __init__(self, qualified, expr):
-        self.qualified = qualified
-        self.expr = expr
+@dataclass
+class Assign(Stmt):
+    qualified: 'Qualified'
+    expr: Expr
 
-    def __eq__(self, other):
-        return isinstance(other, Assign) and self.qualified == other.qualified and self.expr == other.expr
+    def __post_init__(self):
+        super().__init__()
 
-class ExprStmt(AST):
-    def __init__(self, expr):
-        self.expr = expr
+@dataclass
+class ExprStmt(Stmt):
+    expr: Expr
 
-    def __eq__(self, other):
-        return isinstance(other, ExprStmt) and self.expr == other.expr
+    def __post_init__(self):
+        super().__init__()
 
-class If(AST):
-    def __init__(self, condition, if_body):
-        self.condition = condition
-        self.if_body = if_body
+@dataclass
+class If(Stmt):
+    condition: Expr
+    if_body: 'Block'
 
-    def __eq__(self, other):
-        return isinstance(other, If) and self.condition == other.condition and self.if_body == other.if_body
+    def __post_init__(self):
+        super().__init__()
 
-class IfElse(AST):
-    def __init__(self, condition, if_body, else_body):
-        self.condition = condition
-        self.if_body = if_body
-        self.else_body = else_body
+@dataclass
+class IfElse(Stmt):
+    condition: Expr
+    if_body: 'Block'
+    else_body: 'Block'
 
-    def __eq__(self, other):
-        return isinstance(other, IfElse) and self.condition == other.condition and \
-               self.if_body == other.if_body and self.else_body == other.else_body
+    def __post_init__(self):
+        super().__init__()
 
-class ForLoop(AST):
-    def __init__(self, var, iterable, body):
-        self.var = var
-        self.iterable = iterable
-        self.body = body
+@dataclass
+class ForLoop(Stmt):
+    var: str
+    iterable: Expr
+    body: 'Block'
 
-    def __eq__(self, other):
-        return isinstance(other, ForLoop) and self.var == other.var and \
-               self.iterable == other.iterable and self.body == other.body
+    def __post_init__(self):
+        super().__init__()
 
-class WhileLoop(AST):
-    def __init__(self, condition, body):
-        self.condition = condition
-        self.body = body
+@dataclass
+class WhileLoop(Stmt):
+    condition: Expr
+    body: 'Block'
 
-    def __eq__(self, other):
-        return isinstance(other, WhileLoop) and self.condition == other.condition and self.body == other.body
+    def __post_init__(self):
+        super().__init__()
 
-class VarDecl(AST):
-    def __init__(self, name, expr):
-        self.name = name
-        self.expr = expr
+@dataclass
+class VarDecl(Stmt):
+    name: str
+    expr: Expr
 
-    def __eq__(self, other):
-        return isinstance(other, VarDecl) and self.name == other.name and self.expr == other.expr
+    def __post_init__(self):
+        super().__init__()
 
-class Return(AST):
-    def __init__(self, expr):
-        self.expr = expr
+@dataclass
+class Return(Stmt):
+    expr: Expr
 
-    def __eq__(self, other):
-        return isinstance(other, Return) and self.expr == other.expr
+    def __post_init__(self):
+        super().__init__()
 
-class Qualified(AST):
-    def __init__(self, names):
-        self.names = names
+@dataclass
+class Qualified(Expr):
+    names: list[str]
 
-    def __eq__(self, other):
-        return isinstance(other, Qualified) and self.names == other.names
+    def __post_init__(self):
+        super().__init__()
 
-class NewExpr(AST):
-    def __init__(self, class_name, args):
-        self.class_name = class_name
-        self.args = args
+@dataclass
+class NewExpr(Expr):
+    class_name: str
+    args: list[Expr]
 
-    def __eq__(self, other):
-        return isinstance(other, NewExpr) and self.class_name == other.class_name and self.args == other.args
+    def __post_init__(self):
+        super().__init__()
 
-class MethodCall(AST):
-    def __init__(self, obj, method, args):
-        self.obj = obj
-        self.method = method
-        self.args = args
+@dataclass
+class MethodCall(Expr):
+    obj: Expr
+    method: str
+    args: list[Expr]
 
-    def __eq__(self, other):
-        return isinstance(other, MethodCall) and self.obj == other.obj and \
-               self.method == other.method and self.args == other.args
+    def __post_init__(self):
+        super().__init__()
 
-class Constant(AST):
-    def __init__(self, value):
-        self.value = value
+@dataclass
+class Constant(Expr):
+    value: TraxObject
 
-    def __eq__(self, other):
-        return isinstance(other, Constant) and self.value == other.value
+    def __post_init__(self):
+        super().__init__()

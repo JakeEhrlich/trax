@@ -177,7 +177,7 @@ class IntegerMethods:
             trace_compiler = TraceCompiler()
             interp_facade = InterpFacade(trace_compiler)
             trace_args = [trace_compiler.input(i) for i in range(len(args))]
-            print(interp_facade, trace_args, args)
+            #print(interp_facade, trace_args, args)
             result = getattr(IntegerMethods, f"{instruction_name}_trace")(interp_facade, *trace_args)
             trace_interpreter = TraceInterpreter([])
             return trace_interpreter.interpret(trace_compiler.get_instructions(), args, result)
@@ -190,7 +190,7 @@ class IntegerMethods:
             'lt': '<', 'gt': '>', 'le': '<=', 'ge': '>=', 'eq': '==', 'ne': '!=',
             'min': 'min', 'max': 'max', 'to_bool': 'to_bool',
             'bitwise_and': '&', 'bitwise_or': '|', 'bitwise_xor': '^',
-            'bitwise_not': 'bitwise_not', 'left_shift': '<<', 'right_shift': '>>'
+            'bitwise_not': 'bitwise_not', 'left_shift': '<<', 'right_shift': '>>',
         }
         for alpha_name, symbol in method_mapping.items():
             interpreter.add_builtin_method(0, symbol, IntegerMethods.interpreter_builtin(alpha_name), getattr(IntegerMethods, f"{alpha_name}_trace"))
@@ -253,7 +253,7 @@ class BooleanMethods:
             'and': '&', 'or': '|', 'not': '!', 'eq': '==', 'ne': '!=', 'to_int': 'to_int'
         }
         for alpha_name, symbol in method_mapping.items():
-            interpreter.add_builtin_method(1, symbol, BooleanMethods.interpreter_builtin(alpha_name), getattr(BooleanMethods, f"{alpha_name}_trace"))
+            interpreter.add_builtin_method(2, symbol, BooleanMethods.interpreter_builtin(alpha_name), getattr(BooleanMethods, f"{alpha_name}_trace"))
 
 class DefaultRuntime:
     @staticmethod

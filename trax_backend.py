@@ -134,6 +134,7 @@ class AppleSiliconBackend(Backend):
         from trax_aarch64_asm import AArch64Assembler, RelocVar
 
         asm = AArch64Assembler()
+        #asm.brk()
 
         # Create RelocVars for all guard exits
         guard_exits = {inst.guard_id: RelocVar() for inst in trace_compiler.get_instructions() if isinstance(inst, GuardInstruction)}
@@ -210,102 +211,111 @@ class AppleSiliconBackend(Backend):
 
         return asm.to_bytes()
 
-    # TODO: Things would be a lot better if we used high-order pointer tagging instead
     def _compile_instruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
-        if isinstance(inst, GuardInstruction):
-            reg = register_allocation[inst.operand]
-            if isinstance(inst, GuardInt):
-                asm.ands_imm(31, reg, immr=0, imms=0)
-                asm.bne(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardNil):
-                asm.ands_imm(17, reg, immr=0, imms=2)
-                asm.cmp_imm(17, imm=TraxObject.NIL_TAG)
-                asm.bne(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardTrue):
-                asm.ands_imm(17, reg, immr=0, imms=2)
-                asm.cmp_imm(17, imm=TraxObject.TRUE_TAG)
-                asm.bne(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardBool):
-                asm.ands_imm(17, reg, immr=0, imms=1)
-                asm.cmp_imm(17, imm=0b11)
-                asm.bne(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardIndex):
-                asm.ands_imm(16, reg, immr=60, imms=60)
-                asm.ldr(16, 16) # Load as early as possible
-                asm.ands_imm(17, reg, immr=0, imms=2) # Follow up with parallel inst
-                asm.cmp_imm(17, imm=TraxObject.OBJECT_TAG) # Do some compute while loading
-                asm.bne(guard_exits[inst.guard_id]) # Should be ~free
-                asm.cmp_imm(16, imm=inst.type_index) # After load is  done one more cycle
-                asm.bne(guard_exits[inst.guard_id]) # Should be ~free
-            elif isinstance(inst, GuardLT):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.bge(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardLE):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.bgt(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardGT):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.ble(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardGE):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.blt(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardEQ):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.bne(guard_exits[inst.guard_id])
-            elif isinstance(inst, GuardNE):
-                reg2 = register_allocation[inst.right]
-                asm.cmp(reg, reg2)
-                asm.beq(guard_exits[inst.guard_id])
-            # Add more guard types as needed
-        elif isinstance(inst, BinaryOpInstruction):
-            rd = register_allocation[inst]
-            rn = register_allocation[inst.left]
-            rm = register_allocation[inst.right]
-            if isinstance(inst, AddInstruction):
-                asm.add(rd, rn, rm)
-            elif isinstance(inst, SubInstruction):
-                asm.sub(rd, rn, rm)
-            elif isinstance(inst, LtInstruction):
-                asm.mov_imm(17, imm=TraxObject.FALSE_TAG)
-                asm.mov_imm(16, imm=TraxObject.TRUE_TAG)
-                asm.cmp(rn, rm)
-                asm.csel(rd, 16, 17, cond=AArch64Assembler.LT)
-            elif isinstance(inst, BwAndInstruction):
-                asm.bwand(rd, rn, rm)
-            elif isinstance(inst, BwOrInstruction):
-                asm.orr(rd, rn, rm)
-            elif isinstance(inst, BwXorInstruction):
-                asm.eor(rd, rn, rm)
-            elif isinstance(inst, LslInstruction):
-                asm.lsl(rd, rn, rm)
-            elif isinstance(inst, LsrInstruction):
-                asm.lsr(rd, rn, rm)
-            elif isinstance(inst, AsrInstruction):
-                asm.asr(rd, rn, rm)
-            # Add more binary operations as needed
-        elif isinstance(inst, UnaryOpInstruction):
-            rd = register_allocation[inst]
-            rn = register_allocation[inst.operand]
-            if isinstance(inst, BwNotInstruction):
-                asm.mvn(rd, rn)
-        elif isinstance(inst, ConstantInstruction):
-            rd = register_allocation[inst]
-            asm.ldr(rd, 1, imm=inst.constant_index * 8) # x1 points to const array
-        elif isinstance(inst, InputInstruction):
-            rd = register_allocation[inst]
-            asm.ldr(rd, 0, imm=inst.input_index * 8) # x0 points to inputs array
-            pass
-        elif isinstance(inst, CopyInstruction):
-            rd = register_allocation[inst.input]
-            rm = register_allocation[inst.value]
-            if rd != rm:
-                asm.mov(rd, rm)
-            pass
-        else:
+        method_name = f"asm_{inst.__class__.__name__}"
+        method = getattr(self, method_name, None)
+        if method is None:
             raise NotImplementedError(f"No implementation for {type(inst)} in {type(self)}")
-        # Add more instruction types as needed
+        method(asm, inst, register_allocation, guard_exits)
+
+    def asm_GuardInt(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        asm.ands_imm(31, reg, immr=0, imms=0)
+        asm.bne(guard_exits[inst.guard_id])
+
+    def asm_GuardNil(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        asm.ands_imm(17, reg, immr=0, imms=2)
+        asm.cmp_imm(17, imm=TraxObject.NIL_TAG)
+        asm.bne(guard_exits[inst.guard_id])
+
+    def asm_GuardTrue(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        asm.ands_imm(17, reg, immr=0, imms=2)
+        asm.cmp_imm(17, imm=TraxObject.TRUE_TAG)
+        asm.bne(guard_exits[inst.guard_id])
+
+    def asm_GuardBool(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        asm.ands_imm(17, reg, immr=0, imms=1)
+        asm.cmp_imm(17, imm=0b11)
+        asm.bne(guard_exits[inst.guard_id])
+
+    def asm_GuardIndex(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        asm.ands_imm(16, reg, immr=61, imms=60)
+        asm.ldr(16, 16) # Load as early as possible
+        asm.ands_imm(17, reg, immr=0, imms=2) # Follow up with parallel inst
+        asm.cmp_imm(17, imm=TraxObject.OBJECT_TAG) # Do some compute while loading
+        asm.bne(guard_exits[inst.guard_id]) # Should be ~free
+        asm.cmp_imm(16, imm=inst.type_index) # After load is  done one more cycle
+        asm.bne(guard_exits[inst.guard_id]) # Should be ~free
+
+    def asm_GuardLT(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.bge(guard_exits[inst.guard_id])
+
+    def asm_GuardLE(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.bgt(guard_exits[inst.guard_id])
+
+    def asm_GuardGT(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.ble(guard_exits[inst.guard_id])
+
+    def asm_GuardGE(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.blt(guard_exits[inst.guard_id])
+
+    def asm_GuardEQ(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.bne(guard_exits[inst.guard_id])
+
+    def asm_GuardNE(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        reg = register_allocation[inst.operand]
+        reg2 = register_allocation[inst.right]
+        asm.cmp(reg, reg2)
+        asm.beq(guard_exits[inst.guard_id])
+
+    def asm_AddInstruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        rd = register_allocation[inst]
+        rn = register_allocation[inst.left]
+        rm = register_allocation[inst.right]
+        asm.add(rd, rn, rm)
+
+    def asm_SubInstruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        rd = register_allocation[inst]
+        rn = register_allocation[inst.left]
+        rm = register_allocation[inst.right]
+        asm.sub(rd, rn, rm)
+
+    def asm_LtInstruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        rd = register_allocation[inst]
+        rn = register_allocation[inst.left]
+        rm = register_allocation[inst.right]
+        asm.mov_imm(17, imm=TraxObject.FALSE_TAG)
+        asm.mov_imm(16, imm=TraxObject.TRUE_TAG)
+        asm.cmp(rn, rm)
+        asm.csel(rd, 16, 17, cond=AArch64Assembler.LT)
+
+    def asm_BwAndInstruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        rd = register_allocation[inst]
+        rn = register_allocation[inst.left]
+        rm = register_allocation[inst.right]
+        asm.bwand(rd, rn, rm)
+
+    def asm_BwOrInstruction(self, asm: AArch64Assembler, inst, register_allocation, guard_exits):
+        rd = register_allocation[inst]
+        rn = register_allocation[inst.left]
+        rm = register_allocation[inst.right]
+        asm.orr(rd, rn, rm)
