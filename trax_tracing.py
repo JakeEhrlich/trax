@@ -1,3 +1,6 @@
+from trax_obj import TraxObject
+
+
 class TraceInstruction:
     def __hash__(self):
         return id(self)
@@ -16,6 +19,8 @@ class TraceInstruction:
 
 class GuardInstruction(TraceInstruction):
     def __init__(self, guard_id: int, operand: "ValueInstruction", values_to_keep: list["ValueInstruction"]):
+        if isinstance(self, GuardNil):
+            raise ValueError("why?")
         self.guard_id = guard_id
         self.operand = operand
         self.values_to_keep = values_to_keep
@@ -29,20 +34,32 @@ class GuardInstruction(TraceInstruction):
     def copy(self, value_map):
         return self.__class__(self.guard_id, value_map(self.operand), [value_map(v) for v in self.values_to_keep])
 
+    @staticmethod
+    def check(args, **kwargs):
+        raise NotImplementedError("Subclasses must implement this method")
+
 class GuardNil(GuardInstruction):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].is_nil()
 
 class GuardInt(GuardInstruction):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].is_integer()
 
 class GuardBool(GuardInstruction):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].is_boolean()
 
 class GuardTrue(GuardInstruction):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].is_true()
 
 class GuardIndex(GuardInstruction):
-    def __init__(self, guard_id: int, operand: "ValueInstruction", type_index: int, values_to_keep: list["ValueInstruction"]):
+    def __init__(self, guard_id: int, operand: "ValueInstruction", values_to_keep: list["ValueInstruction"], *, type_index: int,):
         super().__init__(guard_id, operand, values_to_keep)
         self.type_index = type_index
 
@@ -50,7 +67,11 @@ class GuardIndex(GuardInstruction):
         return f"{self.__class__.__name__}(guard_id={self.guard_id}, operand={value_to_name(self.operand)}, type_index={self.type_index}, values_to_keep=[{', '.join(value_to_name(v) for v in self.values_to_keep)}])"
 
     def copy(self, value_map):
-        return self.__class__(self.guard_id, value_map(self.operand), self.type_index, [value_map(v) for v in self.values_to_keep])
+        return self.__class__(self.guard_id, value_map(self.operand), [value_map(v) for v in self.values_to_keep], type_index=self.type_index)
+
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].is_object() and args[0].get_type_index() == kwargs["type_index"]
 
 class GuardCond(GuardInstruction):
     def __init__(self, guard_id: int, operand: "ValueInstruction", right: "ValueInstruction", values_to_keep: list["ValueInstruction"]):
@@ -67,22 +88,34 @@ class GuardCond(GuardInstruction):
         return self.__class__(self.guard_id, value_map(self.operand), value_map(self.right), [value_map(v) for v in self.values_to_keep])
 
 class GuardLT(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() < args[1].to_int()
 
 class GuardLE(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() <= args[1].to_int()
 
 class GuardGT(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() > args[1].to_int()
 
 class GuardGE(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() >= args[1].to_int()
 
 class GuardEQ(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() == args[1].to_int()
 
 class GuardNE(GuardCond):
-    pass
+    @staticmethod
+    def check(args, **kwargs):
+        return args[0].to_int() != args[1].to_int()
 
 class ValueInstruction(TraceInstruction):
     def pretty_print(self, value_to_name):
@@ -91,10 +124,13 @@ class ValueInstruction(TraceInstruction):
     def copy(self, value_map):
         return self.__class__()
 
+    def interp(self, args):
+        raise NotImplementedError("Subclasses must implement this method")
+
 class ConstantInstruction(ValueInstruction):
-    def __init__(self, constant_index, type_index):
-        self.constant_index = constant_index
-        self.type_index = type_index
+    def __init__(self, object: TraxObject):
+        self.object = object
+        self.type_index = object.get_type_index()
 
     def get_live_values(self):
         return []
@@ -103,7 +139,10 @@ class ConstantInstruction(ValueInstruction):
         return f"{value_to_name(self)} = {self.__class__.__name__}(constant_index={self.constant_index})"
 
     def copy(self, value_map):
-        return self.__class__(self.constant_index, self.type_index)
+        return self.__class__(self.object)
+
+    def interp(self, args):
+        return self.object
 
 class BinaryOpInstruction(ValueInstruction):
     def __init__(self, left, right, type_index):
@@ -120,6 +159,20 @@ class BinaryOpInstruction(ValueInstruction):
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right), self.type_index)
 
+class UnaryOpInstruction(ValueInstruction):
+    def __init__(self, operand, type_index):
+        self.operand = operand
+        self.type_index = type_index
+
+    def get_live_values(self):
+        return [self.operand]
+
+    def pretty_print(self, value_to_name):
+        return f"{value_to_name(self)} = {self.__class__.__name__}({value_to_name(self.operand)})"
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand), self.type_index)
+
 class BoolBinInstruction(BinaryOpInstruction):
     def __init__(self, left, right):
         self.left = left
@@ -129,23 +182,71 @@ class BoolBinInstruction(BinaryOpInstruction):
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right))
 
+class BoolUnaryInstruction(UnaryOpInstruction):
+    def __init__(self, operand):
+        self.operand = operand
+        self.type_index = 2
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand))
+
 class EqInstruction(BoolBinInstruction):
-    pass
-
-class LtInstruction(BoolBinInstruction):
-    pass
-
-class GtInstruction(BoolBinInstruction):
-    pass
-
-class LeInstruction(BoolBinInstruction):
-    pass
-
-class GeInstruction(BoolBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.value.value == right.value.value)
 
 class NeInstruction(BoolBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.value.value != right.value.value)
+
+class LtInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_int() < right.to_int())
+
+class GtInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_int() > right.to_int())
+
+class LeInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_int() <= right.to_int())
+
+class GeInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_int() >= right.to_int())
+
+class LogicalOrInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_bool() or right.to_bool())
+
+class LogicalAndInstruction(BoolBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_bool(left.to_bool() and right.to_bool())
+
+class LogicalNotInstruction(BoolUnaryInstruction):
+    def interp(self, args):
+        operand = self.operand.interp(args)
+        return operand.from_bool(not operand.to_bool())
+
+class IntToBoolInstruction(BoolUnaryInstruction):
+    def interp(self, args):
+        operand = self.operand.interp(args)
+        return operand.from_bool(bool(operand.to_int()))
 
 class IntBinInstruction(BinaryOpInstruction):
     def __init__(self, left, right):
@@ -156,37 +257,154 @@ class IntBinInstruction(BinaryOpInstruction):
     def copy(self, value_map):
         return self.__class__(value_map(self.left), value_map(self.right))
 
+class IntUnaryInstruction(UnaryOpInstruction):
+    def __init__(self, operand):
+        self.operand = operand
+        self.type_index = 0
+
+    def copy(self, value_map):
+        return self.__class__(value_map(self.operand))
+
 class AddInstruction(IntBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() + right.to_int())
 
 class SubInstruction(IntBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() - right.to_int())
 
 class MulInstruction(IntBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() * right.to_int())
 
 class DivInstruction(IntBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() // right.to_int())
 
 class ModInstruction(IntBinInstruction):
-    pass
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() % right.to_int())
 
-class InputInstruction(ValueInstruction):
-    phi: ValueInstruction
-    input_index: int
+class MaxInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(max(left.to_int(), right.to_int()))
 
-    def __init__(self, input_index):
-        self.input_index = input_index
-        self.phi = self
+class MinInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(min(left.to_int(), right.to_int()))
+
+class BwAndInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() & right.to_int())
+
+class BwOrInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() | right.to_int())
+
+class BwXorInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() ^ right.to_int())
+
+class LslInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() << right.to_int())
+
+class LsrInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() >> right.to_int())
+
+class AsrInstruction(IntBinInstruction):
+    def interp(self, args):
+        left = self.left.interp(args)
+        right = self.right.interp(args)
+        return left.from_int(left.to_int() >> right.to_int())
+
+class BwNotInstruction(IntUnaryInstruction):
+    def interp(self, args):
+        operand = self.operand.interp(args)
+        return operand.from_int(~operand.to_int())
+
+class BoolToIntInstruction(IntUnaryInstruction):
+    def interp(self, args):
+        operand = self.operand.interp(args)
+        return operand.from_int(1 if operand.to_bool() else 0)
+
+class GetVar(ValueInstruction):
+    frame_idx: int
+    var_idx: int
+
+    def __init__(self, frame_idx, var_idx):
+        self.frame_idx = frame_idx
+        self.var_idx = var_idx
 
     def get_live_values(self):
         return []
 
     def pretty_print(self, value_to_name):
-        return f"{value_to_name(self)} = {self.__class__.__name__}(input_index={self.input_index})"
+        return f"{value_to_name(self)} = {self.__class__.__name__}(frame_idx={self.frame_idx}, var_idx={self.var_idx})"
 
     def copy(self, value_map):
-        raise ValueError("You cannot copy an input instruction")
+        return GetVar(self.frame_idx, self.var_idx)
+
+class SetVar(TraceInstruction):
+    frame_idx: int
+    var_idx: int
+    value: ValueInstruction
+
+    def __init__(self, frame_idx, var_idx, value):
+        self.frame_idx = frame_idx
+        self.var_idx = var_idx
+        self.value = value
+
+    def get_live_values(self):
+        return [self.value]
+
+    def pretty_print(self, value_to_name):
+        return f"{self.__class__.__name__}(frame_idx={self.frame_idx}, var_idx={self.var_idx}, value={value_to_name(self.value)})"
+
+    def copy(self, value_map):
+        return SetVar(self.frame_idx, self.var_idx, value_map(self.value))
+
+# class InputInstruction(ValueInstruction):
+#     phi: ValueInstruction
+#     input_index: int
+
+#     def __init__(self, input_index):
+#         self.input_index = input_index
+#         self.phi = self
+
+#     def get_live_values(self):
+#         return []
+
+#     def pretty_print(self, value_to_name):
+#         return f"{value_to_name(self)} = {self.__class__.__name__}(input_index={self.input_index})"
+
+#     def copy(self, value_map):
+#         raise ValueError("You cannot copy an input instruction")
 
 class GetFieldInstruction(ValueInstruction):
     def __init__(self, obj, field_index):
@@ -232,22 +450,22 @@ class NewInstruction(ValueInstruction):
         return self.__class__(self.type_index, self.num_fields)
 
 # Copy instructions are for creating copies from the preamble to the body which may sometimes be needed
-class CopyInstruction(TraceInstruction):
-    input: InputInstruction
-    value: ValueInstruction
+# class CopyInstruction(TraceInstruction):
+#     input: InputInstruction
+#     value: ValueInstruction
 
-    def __init__(self, input, value):
-        self.input = input
-        self.value = value
+#     def __init__(self, input, value):
+#         self.input = input
+#         self.value = value
 
-    def get_live_values(self):
-        return [self.value, self.input]
+#     def get_live_values(self):
+#         return [self.value, self.input]
 
-    def pretty_print(self, value_to_name):
-        return f"{self.__class__.__name__}(input={value_to_name(self.value)}, value={value_to_name(self.value)})"
+#     def pretty_print(self, value_to_name):
+#         return f"{self.__class__.__name__}(input={value_to_name(self.value)}, value={value_to_name(self.value)})"
 
-    def copy(self, value_map):
-        raise ValueError("You cannot copy a copy instruction")
+#     def copy(self, value_map):
+#         raise ValueError("You cannot copy a copy instruction")
 
 class TraceCompiler:
     def __init__(self):
@@ -336,6 +554,76 @@ class TraceCompiler:
         self.add_instruction(instruction)
         return instruction
 
+    def logical_and(self, left, right):
+        instruction = LogicalAndInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def logical_or(self, left, right):
+        instruction = LogicalOrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def logical_not(self, operand):
+        instruction = LogicalNotInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_and(self, left, right):
+        instruction = BwAndInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_or(self, left, right):
+        instruction = BwOrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_xor(self, left, right):
+        instruction = BwXorInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bw_not(self, operand):
+        instruction = BwNotInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def lsl(self, left, right):
+        instruction = LslInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def lsr(self, left, right):
+        instruction = LsrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def asr(self, left, right):
+        instruction = AsrInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def max(self, left, right):
+        instruction = MaxInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def min(self, left, right):
+        instruction = MinInstruction(left, right)
+        self.add_instruction(instruction)
+        return instruction
+
+    def bool_to_int(self, operand):
+        instruction = BoolToIntInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
+    def int_to_bool(self, operand):
+        instruction = IntToBoolInstruction(operand)
+        self.add_instruction(instruction)
+        return instruction
+
     def get_field(self, obj, field_index):
         instruction = GetFieldInstruction(obj, field_index)
         self.add_instruction(instruction)
@@ -354,10 +642,10 @@ class TraceCompiler:
     def get_instructions(self):
         return list(self.instructions)
 
-    def optimize(self, constant_table):
+    def optimize(self):
         self.remove_redundant_guards() # Guards get repeated a lot, remove repeated ones
         self.dead_value_elimination(get_liveness_ranges(self.instructions)) # Don't need to compute dead values
-        self.optimize_constant_guards(constant_table) # Sometimes we guard on a constants
+        self.optimize_constant_guards() # Sometimes we guard on a constants
         self.remove_trivial_guards() # Sometimes we guard on something we know the type of
         self.optimize_guards(get_liveness_ranges(self.instructions)) # Sometimes there's a better guard we can use
         self.unroll_and_lift()
@@ -515,11 +803,11 @@ class TraceCompiler:
 
         self.instructions = optimized_instructions
 
-    def optimize_constant_guards(self, constant_table):
+    def optimize_constant_guards(self):
         optimized_instructions = []
         for instruction in self.instructions:
             if isinstance(instruction, GuardInstruction) and isinstance(instruction.operand, ConstantInstruction):
-                constant = constant_table[instruction.operand.constant_index]
+                constant = instruction.operand.object
                 if isinstance(instruction, GuardNil) and constant.is_nil():
                     continue  # Remove the guard as it's sure to succeed
                 elif isinstance(instruction, GuardInt) and constant.is_integer():

@@ -1,3 +1,4 @@
+from ctypes import c_int64
 from trax_aarch64_asm import AArch64Assembler, RelocVar
 from trax_backend import AppleSiliconBackend, Backend
 from trax_obj import TraxObject
@@ -7,6 +8,7 @@ def test_basic_aarch64_function():
     asm = AArch64Assembler()
 
     # Generate assembly code to double the input
+    # TODO: Fix this!!!!
     asm.ldr(2, 0, imm=0)
     asm.ldr(3, 0, imm=8)
     asm.add(0, 2, 3)    # Add x0 to itself and store in x0
@@ -22,10 +24,10 @@ def test_basic_aarch64_function():
 
     # Convert memory to a function
     ct = be.const_table([])
-    result = be.call_function(addr, [TraxObject.from_int(5), TraxObject.from_int(9)], ct)
+    gaurd_id, values_to_keep = be.call_function(addr, [TraxObject.from_int(5), TraxObject.from_int(9)], ct)
 
     # Check if the result is correct
-    assert result.to_int() == 14  # 5 + 9 = 14
+    assert TraxObject(c_int64(gaurd_id)).to_int() == 14  # 5 + 9 = 14
 
 def test_aarch64_loop():
     asm = AArch64Assembler()
